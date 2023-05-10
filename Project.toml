@@ -1,0 +1,7 @@
+name = "LowRankMatrices"
+uuid = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
+authors = ["JFdCD <j.cossio.diaz@gmail.com>"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.8.3"
