@@ -1,6 +1,1 @@
-using LowRankMatrices
-using Test
-
-@testset "LowRankMatrices.jl" begin
-    # Write your tests here.
-end
+module lowrankmatrix_tests include("lowrankmatrix.jl") end

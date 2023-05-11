@@ -1,5 +1,9 @@
 module LowRankMatrices
 
-# Write your package code here.
+using LinearAlgebra: Adjoint, rank
+
+import LinearAlgebra
+
+include("lowrankmatrix.jl")
 
 end
