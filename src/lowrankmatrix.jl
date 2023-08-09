@@ -47,4 +47,11 @@ Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::LowRankMatrix) = (x * L.u) * L
 Base.:(\)(L::LowRankMatrix, b::AbstractMatrix) = L.v' \ (L.u \ b)
 Base.:(\)(L::LowRankMatrix, b::AbstractVector) = L.v' \ (L.u \ b)
 
+# Resolve ambiguities
+Base.:(*)(L::LowRankMatrix, A::Diagonal) = invoke(LowRankMatrix, Tuple{LowRankMatrix,AbstractMatrix}, L, A)
+Base.:(*)(L::LowRankMatrix, A::AbstractTriangular) = invoke(LowRankMatrix, Tuple{LowRankMatrix,AbstractMatrix}, L, A)
+Base.:(*)(A::Diagonal, L::LowRankMatrix) = invoke(LowRankMatrix, Tuple{AbstractMatrix, LowRankMatrix}, A, L)
+Base.:(*)(A::AbstractTriangular, L::LowRankMatrix) = invoke(LowRankMatrix, Tuple{AbstractMatrix, LowRankMatrix}, A, L)
+Base.:(*)(A::Transpose{T, <:AbstractVector}, L::LowRankMatrix) where {T} = invoke(LowRankMatrix, Tuple{AbstractMatrix, LowRankMatrix}, A, L)
+
 Base.show(io::IO, ::MIME"text/plain", M::LowRankMatrix) = print(io, "LowRankMatrix{", eltype(M), "} of rank ", rank(M), ".")
