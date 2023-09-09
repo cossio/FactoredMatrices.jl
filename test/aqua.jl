@@ -1,8 +1,8 @@
 import Aqua
-import LowRankMatrices
+import FactoredMatrices
 
 using Test: @testset
 
 @testset verbose = true "aqua" begin
-    Aqua.test_all(LowRankMatrices)
+    Aqua.test_all(FactoredMatrices)
 end

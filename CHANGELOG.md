@@ -4,10 +4,19 @@ All notable changes to this project will be documented in this file. The format 
 
 ## Unreleased
 
-## 1.0.0 - 2023-08-09
+## 2.0.0
+
+### Breaking changes
+
+- Package is now called `FactoredMatrices`, to avoid conflict with [LowRankMatrices.jl](https://github.com/JuliaLinearAlgebra/LowRankMatrices.jl).
+- `LowRankMatrix` is now called `FactoredMatrix`.
+
+## 1.0.0 - yanked
+
+This version was yanked because of a name conflict with [LowRankMatrices.jl].
 
 ### Added
 
 - This CHANGELOG file.
-- Register at https://github.com/cossio/CossioJuliaRegistry.
+- Register at https://github.com/cossio/CossioJuliaRegistry (yanked).
 - `LowRankMatrix` type.

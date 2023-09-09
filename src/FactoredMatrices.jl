@@ -1,9 +1,9 @@
-module LowRankMatrices
+module FactoredMatrices
 
 import LinearAlgebra
 
 using LinearAlgebra: Adjoint, rank, AbstractTriangular, Diagonal, Transpose
 
-include("lowrankmatrix.jl")
+include("factoredmatrix.jl")
 
 end
