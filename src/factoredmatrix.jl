@@ -23,7 +23,7 @@ LinearAlgebra.transpose(L::FactoredMatrix) = FactoredMatrix(L.v, L.u)
 LinearAlgebra.adjoint(L::FactoredMatrix) = FactoredMatrix(conj(L.v), conj(L.u))
 
 Base.Matrix(L::FactoredMatrix) = L.u * L.v'
-Base.Array(L) = Matrix(L)
+Base.Array(L::FactoredMatrix) = Matrix(L)
 Base.copy(L::FactoredMatrix) = FactoredMatrix(copy(L.u), copy(L.v))
 
 Base.:(*)(a::Number, L::FactoredMatrix) = FactoredMatrix(a * L.u, L.v)
