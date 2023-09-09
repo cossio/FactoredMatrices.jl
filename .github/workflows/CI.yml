@@ -18,12 +18,12 @@ jobs:
         arch:
           - x64
     steps:
-      - uses: actions/checkout@v3
-      - uses: julia-actions/setup-julia@latest
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac
+      - uses: julia-actions/setup-julia@f40c4b69330df1d22e7590c12e76dc2f9c66e0bc
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v1
+      - uses: julia-actions/cache@569d290d51d6c22c1cd4ceec591a1bf112aab9c0
 
       # Add my registry
       # Note that Windows complains about '//' if I don't use 'shell: bash' here.
@@ -40,10 +40,10 @@ jobs:
 
       # Install dependencies. Instruct Pkg to use command-line `git`, which is more likely to work
       # with the SSH key setup above.
-      - uses: julia-actions/julia-buildpkg@latest
+      - uses: julia-actions/julia-buildpkg@72ddd0fcdc760e6d2ef7ef2bbb11ae5032b671a8
         env:
           JULIA_PKG_USE_CLI_GIT: true
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
             
       # Run tests
-      - uses: julia-actions/julia-runtest@latest
+      - uses: julia-actions/julia-runtest@79a7e100883947123f8263c5f06e6c0ea3eb972f
