@@ -1,5 +1,5 @@
 using KrylovKit: svdsolve
-using LinearAlgebra: svd
+using LinearAlgebra: svd, qr
 using FactoredMatrices: FactoredMatrix
 using Test: @test, @testset
 
@@ -17,4 +17,15 @@ using Test: @test, @testset
         @test lvecs[k] * sign(lvecs[k][1]) ≈ F.U[:,k] * sign(F.U[1,k])
         @test rvecs[k] * sign(rvecs[k][1]) ≈ F.V[:,k] * sign(F.V[1,k])
     end
+end
+
+@testset "svd" begin
+    A = FactoredMatrix(randn(20, 3), randn(12, 3))
+    F = svd(Matrix(A))
+
+    qr1 = qr(A.u)
+    qr2 = qr(A.v)
+
+    Fqr = svd(qr1.R * qr2.R')
+    @test Fqr.S ≈ F.S[1:3]
 end
