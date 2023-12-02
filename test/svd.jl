@@ -28,4 +28,10 @@ end
 
     Fqr = svd(qr1.R * qr2.R')
     @test Fqr.S ≈ F.S[1:3]
+
+    lvecs = qr1.Q * Fqr.U
+    @test lvecs .* sign.(lvecs[1:1,:]) ≈ F.U[:,1:3] .* sign.(F.U[1:1,1:3])
+
+    rvecs = qr2.Q * copy(Fqr.V)
+    @test rvecs .* sign.(rvecs[1:1,:]) ≈ F.V[:,1:3] .* sign.(F.V[1:1,1:3])
 end
