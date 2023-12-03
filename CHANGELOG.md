@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ## Unreleased
 
+## 2.1.0
+
+### Added
+
+- `svd` defined for `FactoredMatrix` using `qr` decomposition.
+
 ## 2.0.0
 
 ### Breaking changes

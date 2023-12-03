@@ -55,3 +55,12 @@ Base.:(*)(A::AbstractTriangular, L::FactoredMatrix) = invoke(FactoredMatrix, Tup
 Base.:(*)(A::Transpose{T, <:AbstractVector}, L::FactoredMatrix) where {T} = invoke(FactoredMatrix, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
 
 Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMatrix{", eltype(M), "} of rank ", rank(M), ".")
+
+function LinearAlgebra.svd(A::FactoredMatrix)
+    qru = qr(A.u)
+    qrv = qr(A.v)
+    Fqr = svd(qru.R * qrv.R')
+    U = qru.Q * Fqr.U
+    Vt = Fqr.Vt * qrv.Q'
+    return SVD(U, Fqr.S, Vt)
+end

@@ -1,7 +1,17 @@
-using KrylovKit: svdsolve
+using Test: @test, @testset
 using LinearAlgebra: svd, qr
 using FactoredMatrices: FactoredMatrix
-using Test: @test, @testset
+using KrylovKit: svdsolve
+
+@testset "svd" begin
+    A = FactoredMatrix(randn(20, 3), randn(12, 3))
+    F = svd(Matrix(A))
+    F1 = svd(A)
+
+    @test F1.S ≈ F.S[1:3]
+    @test F1.U .* sign.(F1.U[1:1,:]) ≈ F.U[:,1:3] .* sign.(F.U[1:1,1:3])
+    @test F1.Vt .* sign.(F1.Vt[:,1:1]) ≈ F.Vt[1:3,:] .* sign.(F.Vt[1:3,1:1])
+end
 
 @testset "Krylov" begin
     A = FactoredMatrix(randn(20, 3), randn(12, 3))
@@ -17,21 +27,4 @@ using Test: @test, @testset
         @test lvecs[k] * sign(lvecs[k][1]) ≈ F.U[:,k] * sign(F.U[1,k])
         @test rvecs[k] * sign(rvecs[k][1]) ≈ F.V[:,k] * sign(F.V[1,k])
     end
-end
-
-@testset "svd" begin
-    A = FactoredMatrix(randn(20, 3), randn(12, 3))
-    F = svd(Matrix(A))
-
-    qr1 = qr(A.u)
-    qr2 = qr(A.v)
-
-    Fqr = svd(qr1.R * qr2.R')
-    @test Fqr.S ≈ F.S[1:3]
-
-    lvecs = qr1.Q * Fqr.U
-    @test lvecs .* sign.(lvecs[1:1,:]) ≈ F.U[:,1:3] .* sign.(F.U[1:1,1:3])
-
-    rvecs = qr2.Q * copy(Fqr.V)
-    @test rvecs .* sign.(rvecs[1:1,:]) ≈ F.V[:,1:3] .* sign.(F.V[1:1,1:3])
 end
