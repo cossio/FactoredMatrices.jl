@@ -81,7 +81,11 @@ Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMa
 Compute the singular value decomposition of `A`, exploiting the factored representation.
 Only QR decompositions of the factors and an SVD of the `min(m, r) × min(n, r)` core are
 required, which is cheaper than an SVD of the materialized full matrix when `r < m, n`.
-Returns a `LinearAlgebra.SVD` factorization object.
+
+Returns a reduced `LinearAlgebra.SVD` factorization object with `min(m, n, r)` singular
+values, where `U` is `m × min(m, n, r)` and `Vt` is `min(m, n, r) × n`. When
+`r < min(m, n)` this is smaller than the factorization returned by `svd(Matrix(A))`,
+which has `min(m, n)` singular values; the omitted singular values are all zero.
 """
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)
