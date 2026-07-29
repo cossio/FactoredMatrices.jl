@@ -19,8 +19,8 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38
       - name: Install dependencies
-        # docs/ is a workspace project of the root package, so instantiating it
-        # resolves FactoredMatrices to the local checkout (no Pkg.develop needed).
+        # The [sources] entry in docs/Project.toml resolves FactoredMatrices to
+        # the local checkout (no Pkg.develop needed).
         run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - name: Build and deploy
         env:

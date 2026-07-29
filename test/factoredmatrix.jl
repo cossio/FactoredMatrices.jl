@@ -9,6 +9,12 @@ using FactoredMatrices: FactoredMatrix
 A = FactoredMatrix(randn(20, 4), randn(12, 4))
 @test Matrix(@inferred 2A) ≈ Matrix(@inferred A * 2) ≈ 2Matrix(A)
 
+# scalar multiplication must not conjugate complex scalars
+A = FactoredMatrix(randn(ComplexF64, 20, 4), randn(ComplexF64, 12, 4))
+a = 2 + 3im
+@test Matrix(@inferred a * A) ≈ a * Matrix(A)
+@test Matrix(@inferred A * a) ≈ Matrix(A) * a
+
 A = FactoredMatrix(randn(20, 4), randn(12, 4))
 B = FactoredMatrix(randn(12, 2), randn(7, 2))
 @test Matrix(A * B) ≈ Matrix(A) * Matrix(B)

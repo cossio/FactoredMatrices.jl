@@ -39,7 +39,7 @@ Base.Array(L::FactoredMatrix) = Matrix(L)
 Base.copy(L::FactoredMatrix) = FactoredMatrix(copy(L.u), copy(L.v))
 
 Base.:(*)(a::Number, L::FactoredMatrix) = FactoredMatrix(a * L.u, L.v)
-Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, a * L.v)
+Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, conj(a) * L.v) # conj because Matrix(L) = L.u * L.v'
 Base.:(*)(A::FactoredMatrix, B::Adjoint{<:Any, <:FactoredMatrix}) = A * adjoint(parent(B)) # override default
 
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
@@ -72,9 +72,9 @@ Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMa
     svd(A::FactoredMatrix)
 
 Compute the singular value decomposition of `A`, exploiting the factored representation.
-Only decompositions of the (small) `r × r` core and QR decompositions of the factors are
-required, avoiding the materialization of the full matrix. Returns a `LinearAlgebra.SVD`
-factorization object.
+Only QR decompositions of the factors and an SVD of the `min(m, r) × min(n, r)` core are
+required, which is cheaper than an SVD of the materialized full matrix when `r < m, n`.
+Returns a `LinearAlgebra.SVD` factorization object.
 """
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)
