@@ -19,8 +19,8 @@ FactoredMatrix(u::AbstractVector, v::AbstractVector) = FactoredMatrix(reshape(u,
 Base.size(L::FactoredMatrix) = (size(L.u, 1), size(L.v, 1))
 Base.iszero(L::FactoredMatrix) = iszero(L.u) && all(!isnan, L.v) || all(!isnan, L.u) && iszero(L.v)
 LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
-LinearAlgebra.transpose(L::FactoredMatrix) = FactoredMatrix(L.v, L.u)
-LinearAlgebra.adjoint(L::FactoredMatrix) = FactoredMatrix(conj(L.v), conj(L.u))
+LinearAlgebra.adjoint(L::FactoredMatrix) = FactoredMatrix(L.v, L.u)
+LinearAlgebra.transpose(L::FactoredMatrix) = FactoredMatrix(conj(L.v), conj(L.u))
 
 Base.Matrix(L::FactoredMatrix) = L.u * L.v'
 Base.Array(L::FactoredMatrix) = Matrix(L)
