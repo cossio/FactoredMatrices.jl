@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file. The format 
 - Lazy `+` and `-` by factor concatenation (storage ranks add up), and `-A`, `A / a`, `a \ A` scalar operations.
 - `==`, `isapprox` and `hash`. Equality compares the *represented* matrices: `==` entrywise without materializing (`O(1)` memory), `isapprox` in the Frobenius norm evaluated in closed form from the factors at `O((m + n) * (rank(A) + rank(B))²)` cost.
 - `getindex` for single entries, `size(A, d)`, `length`, and docstrings for the public API.
+- `FactoredMatrix` factors with different element types are now promoted to a common element type. In particular, multiplication by a type-promoting scalar (e.g. `(1 + im) * A` for a real `A`) now works instead of throwing a `MethodError`.
 
 ### Changed
 
@@ -26,6 +27,6 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Fixed
 
+- Right-multiplication by a scalar (`A * a`) conjugated non-real scalars: it scaled the `v` factor by `a`, whose adjoint appears in the represented matrix `u * v'`, so the result was `conj(a) * A` instead of `a * A`. Real scalars were unaffected.
 - `adjoint` and `transpose` of a `FactoredMatrix` were swapped for complex element types: `adjoint` conjugated the factors (computing the transpose) and `transpose` did not (computing the adjoint). Real element types were unaffected.
-- `A * a` with a complex scalar `a` returned `conj(a) * A` instead of `a * A`, because the scalar was folded into the implicitly-adjointed factor without conjugation. Real scalars were unaffected.
 - `iszero` returned `true` for a zero factor paired with a factor containing `Inf` entries, although `0 * Inf = NaN` means the represented matrix is not zero. (`NaN` entries were already handled.)

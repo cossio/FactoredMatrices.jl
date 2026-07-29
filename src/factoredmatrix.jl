@@ -11,6 +11,8 @@ The second factor must be passed adjointed (or transposed), so that the call rea
 the product it represents: `FactoredMatrix(u, v')` is the matrix `u * v'`. Passing two
 plain matrices throws an `ArgumentError`. Vector arguments are treated as one-column
 matrices, so `FactoredMatrix(x, y')` is the outer product of the vectors `x` and `y`.
+If the factors have different element types, both are converted to their promoted
+element type.
 
 `FactoredMatrix <: Factorization`, so it does not support iteration or the generic
 `AbstractMatrix` fallbacks. The supported operations (`*`, `mul!`, `+`, `-`, `dot`,
@@ -245,9 +247,14 @@ end
 """
     svd(A::FactoredMatrix)
 
-Compact singular value decomposition of the represented matrix, with `rank(A)` singular
-values. Computed from QR decompositions of the factors and an `rank × rank` dense SVD,
-at `O((m + n) * rank²)` cost, without materializing the dense matrix.
+Compute the singular value decomposition of `A`, exploiting the factored representation.
+Only QR decompositions of the factors and an SVD of the `min(m, r) × min(n, r)` core are
+required, which is cheaper than an SVD of the materialized full matrix when `r < m, n`.
+
+Returns a reduced `LinearAlgebra.SVD` factorization object with `min(m, n, r)` singular
+values, where `U` is `m × min(m, n, r)` and `Vt` is `min(m, n, r) × n`. When
+`r < min(m, n)` this is smaller than the factorization returned by `svd(Matrix(A))`,
+which has `min(m, n)` singular values; the omitted singular values are all zero.
 """
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)

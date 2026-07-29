@@ -34,8 +34,9 @@ U = randn(5, 1)
 @test rank(FactoredMatrix(x, V')) == rank(FactoredMatrix(U, y')) == rank(FactoredMatrix(x, y')) == 1
 
 # mixed element types promote
-A = FactoredMatrix(randn(Float32, 5, 2), randn(Float64, 4, 2)')
+A = @inferred FactoredMatrix(randn(Float32, 5, 2), randn(Float64, 4, 2)')
 @test eltype(A) == Float64
+@test A.u isa Matrix{Float64} && A.v isa Matrix{Float64}
 
 # size, length, rank, getindex
 A = FactoredMatrix(randn(20, 4), randn(12, 4)')
@@ -94,10 +95,16 @@ A = FactoredMatrix(randn(20, 4), randn(12, 4)')
 @test (+A) === A
 a = 1 + 2im
 A = FactoredMatrix(randn(ComplexF64, 20, 4), randn(ComplexF64, 12, 4)')
-@test Matrix(a * A) ≈ a * Matrix(A)
-@test Matrix(A * a) ≈ Matrix(A) * a # scalar must not be conjugated by the implicit adjoint
-@test Matrix(A / a) ≈ Matrix(A) / a
-@test Matrix(a \ A) ≈ a \ Matrix(A)
+@test Matrix(@inferred a * A) ≈ a * Matrix(A)
+@test Matrix(@inferred A * a) ≈ Matrix(A) * a # scalar must not be conjugated by the implicit adjoint
+@test Matrix(@inferred A / a) ≈ Matrix(A) / a
+@test Matrix(@inferred a \ A) ≈ a \ Matrix(A)
+
+# a type-promoting scalar works because the factors are promoted to a common type
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
+a = 1 + im
+@test Matrix(@inferred a * A) ≈ a * Matrix(A)
+@test Matrix(@inferred A * a) ≈ Matrix(A) * a
 
 # lazy sums and differences by factor concatenation
 for T in (Float64, ComplexF64)

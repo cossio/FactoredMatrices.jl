@@ -1,5 +1,8 @@
 # FactoredMatrices
 
+[![CI](https://github.com/cossio/FactoredMatrices.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/cossio/FactoredMatrices.jl/actions/workflows/CI.yml)
+[![Docs (stable)](https://img.shields.io/badge/docs-stable-blue.svg)](https://cossio.github.io/FactoredMatrices.jl/stable)
+[![Docs (dev)](https://img.shields.io/badge/docs-dev-blue.svg)](https://cossio.github.io/FactoredMatrices.jl/dev)
 [![codecov](https://codecov.io/gh/cossio/FactoredMatrices.jl/graph/badge.svg)](https://codecov.io/gh/cossio/FactoredMatrices.jl)
 
 Store and operate on low-rank matrices in factored form `A = u * v'` without materializing
