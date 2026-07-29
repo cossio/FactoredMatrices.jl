@@ -28,7 +28,7 @@ Base.copy(L::FactoredMatrix) = FactoredMatrix(copy(L.u), copy(L.v))
 
 Base.:(*)(a::Number, L::FactoredMatrix) = FactoredMatrix(a * L.u, L.v)
 Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, a * L.v)
-Base.:(*)(A::FactoredMatrix, B::Adjoint{<:Any, FactoredMatrix}) = A * adjoint(B) # override default
+Base.:(*)(A::FactoredMatrix, B::Adjoint{<:Any, <:FactoredMatrix}) = A * adjoint(parent(B)) # override default
 
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
     if rank(L) ≤ rank(M)
@@ -48,11 +48,11 @@ Base.:(\)(L::FactoredMatrix, b::AbstractMatrix) = L.v' \ (L.u \ b)
 Base.:(\)(L::FactoredMatrix, b::AbstractVector) = L.v' \ (L.u \ b)
 
 # Resolve ambiguities
-Base.:(*)(L::FactoredMatrix, A::Diagonal) = invoke(FactoredMatrix, Tuple{FactoredMatrix, AbstractMatrix}, L, A)
-Base.:(*)(L::FactoredMatrix, A::AbstractTriangular) = invoke(FactoredMatrix, Tuple{FactoredMatrix, AbstractMatrix}, L, A)
-Base.:(*)(A::Diagonal, L::FactoredMatrix) = invoke(FactoredMatrix, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
-Base.:(*)(A::AbstractTriangular, L::FactoredMatrix) = invoke(FactoredMatrix, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
-Base.:(*)(A::Transpose{T, <:AbstractVector}, L::FactoredMatrix) where {T} = invoke(FactoredMatrix, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
+Base.:(*)(L::FactoredMatrix, A::Diagonal) = invoke(*, Tuple{FactoredMatrix, AbstractMatrix}, L, A)
+Base.:(*)(L::FactoredMatrix, A::AbstractTriangular) = invoke(*, Tuple{FactoredMatrix, AbstractMatrix}, L, A)
+Base.:(*)(A::Diagonal, L::FactoredMatrix) = invoke(*, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
+Base.:(*)(A::AbstractTriangular, L::FactoredMatrix) = invoke(*, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
+Base.:(*)(A::Transpose{T, <:AbstractVector}, L::FactoredMatrix) where {T} = invoke(*, Tuple{AbstractMatrix, FactoredMatrix}, A, L)
 
 Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMatrix{", eltype(M), "} of rank ", rank(M), ".")
 
