@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
-- Minimum supported Julia version is now 1.10 (was 1.9), as required by the ExplicitImports check added to the test suite.
+- Minimum supported Julia version is now 1.11 (was 1.9), as required by the ExplicitImports publicness check added to the test suite (`public` markers exist only on Julia 1.11+).
 
 ### Fixed
 
