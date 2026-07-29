@@ -6,12 +6,17 @@ on:
     tags: [v*]
   pull_request:
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
+  # Pull request validation build. This runs the PR's version of docs/make.jl,
+  # so it gets a read-only token and no secrets; without deployment credentials,
+  # Documenter.deploydocs skips deployment and only the build is exercised.
   build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32
@@ -21,6 +26,23 @@ jobs:
       - name: Install dependencies
         # The [sources] entry in docs/Project.toml resolves FactoredMatrices to
         # the local checkout (no Pkg.develop needed).
+        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - name: Build
+        run: julia --project=docs docs/make.jl
+  # Builds on pushes to main and version tags deploy to GitHub Pages, and only
+  # they get the write token and deployment key.
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32
+        with:
+          version: '1'
+      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38
+      - name: Install dependencies
         run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - name: Build and deploy
         env:
