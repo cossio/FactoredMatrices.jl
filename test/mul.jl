@@ -115,8 +115,11 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     C = zeros(T, 15, 5)
     alloc_mul(C, L, B, ws)
     @test alloc_mul(C, L, B, ws) == 0
+    # on Julia < 1.12, 5-arg mul! with runtime α, β constructs a boxed MulAddMul inside
+    # LinearAlgebra (16-48 bytes depending on the eltype; plain dense mul! pays the
+    # same); Julia 1.12 elides it
     alloc_mul5(C, L, B, α, β, ws)
-    @test alloc_mul5(C, L, B, α, β, ws) == 0
+    @test alloc_mul5(C, L, B, α, β, ws) ≤ (VERSION < v"1.12" ? 48 : 0)
     C = zeros(T, 10, 5)
     alloc_mul(C, L', D, ws)
     @test alloc_mul(C, L', D, ws) == 0
@@ -194,6 +197,48 @@ C = zeros(ComplexF64, 4, 5)
 c0 = randn(ComplexF64, 6)
 c = copy(c0)
 @test mul!(c, cfm, xc, 2.0, 3.0) ≈ 2 * (Matrix(L) * xc) + 3 * c0
+
+# factored operands: cached products delegate to the lazy factored products
+R = FactoredMatrix(randn(5, 3), randn(7, 3)') # L is 6 × 5, so L * R is 6 × 7
+G = FactoredMatrix(randn(4, 2), randn(6, 2)') # G * L is 4 × 5
+W = FactoredMatrix(randn(7, 2), randn(5, 2)') # L * W' is 6 × 7
+@test cfm * R isa FactoredMatrix
+@test Matrix(cfm * R) ≈ Matrix(L) * Matrix(R)
+@test G * cfm isa FactoredMatrix
+@test Matrix(G * cfm) ≈ Matrix(G) * Matrix(L)
+@test Matrix(cfm * Adjoint(W)) ≈ Matrix(L) * Matrix(W)'
+@test Matrix(Adjoint(G') * cfm) ≈ Matrix(G) * Matrix(L)
+@test Matrix(cfm * FactoredMatrices.CachedFactoredMatrix(R, 2)) ≈ Matrix(L) * Matrix(R)
+
+# cached mul! with factored operands; the bundled buffer is used only when it fits
+cfmR = FactoredMatrices.CachedFactoredMatrix(L, rank(R)) # left buffer fits L × R products
+for A in (cfmR, cfm) # fitting and non-fitting buffers give the same result
+    local C = zeros(6, 7)
+    @test mul!(C, A, Adjoint(W)) ≈ Matrix(L) * Matrix(W)'
+    @test mul!(C, A, R) ≈ Matrix(L) * Matrix(R)
+    @test mul!(C, A, R, 2.0, 1.0) ≈ 3 * Matrix(L) * Matrix(R) # uses C = L * R from above
+    local Cf = FactoredMatrix(zeros(6, 3), zeros(7, 3)')
+    @test Matrix(mul!(Cf, A, R)) ≈ Matrix(L) * Matrix(R)
+end
+C = zeros(4, 5)
+@test mul!(C, G, cfm) ≈ Matrix(G) * Matrix(L)
+@test mul!(C, Adjoint(G'), cfm) ≈ Matrix(G) * Matrix(L)
+@test mul!(C, G, cfm, 2.0, 1.0) ≈ 3 * Matrix(G) * Matrix(L)
+Cf = FactoredMatrix(zeros(4, 2), zeros(5, 2)')
+@test Matrix(mul!(Cf, G, cfm)) ≈ Matrix(G) * Matrix(L)
+C = zeros(6, 7)
+@test mul!(C, cfmR, FactoredMatrices.CachedFactoredMatrix(R, 2)) ≈ Matrix(L) * Matrix(R)
+@test mul!(C, cfmR, FactoredMatrices.CachedFactoredMatrix(R, 2), 2.0, 1.0) ≈ 3 * Matrix(L) * Matrix(R)
+Cf = FactoredMatrix(zeros(6, 3), zeros(7, 3)')
+@test Matrix(mul!(Cf, cfmR, FactoredMatrices.CachedFactoredMatrix(R, 2))) ≈ Matrix(L) * Matrix(R)
+
+# Boolean products accumulate into Int, like ordinary matrix products
+Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
+cfb = FactoredMatrices.CachedFactoredMatrix(Lb, 1)
+@test cfb * trues(1, 1) == fill(2, 1, 1)
+@test eltype(cfb * trues(1, 1)) == Int
+@test cfb * trues(1) == fill(2, 1)
+@test trues(1, 1) * cfb == fill(2, 1, 1)
 
 # Workspace constructors
 ws = FactoredMatrices.Workspace{Float64}(3, 7)

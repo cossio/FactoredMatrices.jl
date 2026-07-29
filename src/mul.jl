@@ -40,18 +40,18 @@ _rbuf(ws::Workspace, A::AbstractMatrix, M::FactoredMatrix) = mul!(ws.right, A, M
 #=== mul! into a dense output ===#
 
 # C = α * L * B + β * C = α * u * (v' * B) + β * C
-function _mul!(C::AbstractVecOrMat, L::FactoredMatrix, B::AbstractVecOrMat, α::Number, β::Number, cache::MaybeWorkspace)
+Base.@inline function _mul!(C::AbstractVecOrMat, L::FactoredMatrix, B::AbstractVecOrMat, α::Number, β::Number, cache::MaybeWorkspace)
     return mul!(C, L.u, _lbuf(cache, L, B), α, β)
 end
 
 # C = α * A * M + β * C = α * (A * u) * v' + β * C
-function _mul!(C::AbstractMatrix, A::AbstractMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
+Base.@inline function _mul!(C::AbstractMatrix, A::AbstractMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
     return mul!(C, _rbuf(cache, A, M), M.v', α, β)
 end
 
 # C = α * L * M + β * C with t = v_L' * u_M of size rank(L) × rank(M); associate so that
 # the second (allocated) intermediate is the smaller of rank(L) × n and m × rank(M).
-function _mul!(C::AbstractMatrix, L::FactoredMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
+Base.@inline function _mul!(C::AbstractMatrix, L::FactoredMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
     t = _lbuf(cache, L, M.u)
     if rank(L) * size(M.v, 1) ≤ size(L.u, 1) * rank(M)
         return mul!(C, L.u, t * M.v', α, β)
@@ -173,9 +173,11 @@ so they travel together through an API that takes a single matrix-like argument.
 Products against a `CachedFactoredMatrix` automatically use the bundled buffers as their
 `mul!` cache, sparing callers from threading a `cache` argument through every call site.
 
-The bundled `Workspace` carries a single outer size `p`, which must equal `size(B, 2)`
-for `cfm * B` and `size(A, 1)` for `A * cfm`. Use one `CachedFactoredMatrix` per task
-when multiplying concurrently.
+The bundled `Workspace` carries a single outer size `p` (e.g. `size(B, 2)` for
+`cfm * B`, or `size(A, 1)` for `A * cfm`). The buffers are used only for products they
+fit, in shape and element type; other products still work, falling back to allocating
+their intermediates. Use one `CachedFactoredMatrix` per task when multiplying
+concurrently.
 """
 struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace{T}} <: Factorization{T}
     M::F
@@ -194,36 +196,86 @@ Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
-# The buffers have the matrix's element type, so they can only hold intermediates that
-# do not promote beyond it; for promoting operands (e.g. a real cached matrix times a
-# complex one) fall back to allocating intermediates, preserving the ordinary
-# mixed-element-type multiplication semantics.
-_usable_cache(ws::Workspace{T}, B) where {T} = promote_type(T, eltype(B)) === T ? ws : nothing
+# Element type of a matrix product with operand element types T and S. Products
+# accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
+_prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T) * zero(S))
 
-LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix) = mul!(C, A.M, B; cache = _usable_cache(A.ws, B))
-LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector) = mul!(y, A.M, x; cache = _usable_cache(A.ws, x))
-LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix) = mul!(C, A, B.M; cache = _usable_cache(B.ws, A))
-function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix, α::Number, β::Number)
-    return mul!(C, A.M, B, α, β; cache = _usable_cache(A.ws, B))
+# The bundled buffers are used only when they fit the operation: the intermediate's
+# element type must not grow beyond the buffer's, and the buffer must have the shape the
+# operation needs (it carries a single outer size `p`). Otherwise the product falls back
+# to allocating its intermediates, preserving ordinary multiplication semantics.
+_pdim(B::AbstractMatrix) = size(B, 2)
+_pdim(B::FactoredMatrix) = rank(B)
+_pdim(B::AdjOrTransFM) = rank(parent(B))
+
+function _left_cache(A::CachedFactoredMatrix{T}, B::Union{AbstractMatrix, FactoredMatrix}) where {T}
+    return _prodtype(T, eltype(B)) === T && size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
 end
-function LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector, α::Number, β::Number)
-    return mul!(y, A.M, x, α, β; cache = _usable_cache(A.ws, x))
+function _left_cache(A::CachedFactoredMatrix{T}, b::AbstractVector) where {T}
+    ok = _prodtype(T, eltype(b)) === T && size(A.ws.left, 1) == rank(A.M) && size(A.ws.left, 2) ≥ 1
+    return ok ? A.ws : nothing
 end
-function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix, α::Number, β::Number)
-    return mul!(C, A, B.M, α, β; cache = _usable_cache(B.ws, A))
+function _right_cache(B::CachedFactoredMatrix{T}, A::AbstractMatrix) where {T}
+    return _prodtype(T, eltype(A)) === T && size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
+end
+# For factored × cached products the FactoredMatrix × FactoredMatrix path uses the left
+# buffer, with shape rank(A) × rank(B.M).
+function _right_cache(B::CachedFactoredMatrix{T}, A::Union{FactoredMatrix, AdjOrTransFM}) where {T}
+    return _prodtype(T, eltype(A)) === T && size(B.ws.left) == (rank(rewrap(A)), rank(B.M)) ? B.ws : nothing
 end
 
-# Allocating products: the output has the promoted element type; the intermediates use
-# the buffers whenever the element types allow it.
+# The forwarding methods call the positional internals directly: routing the bundled
+# buffers through the `cache` keyword would box the Union-typed value on Julia 1.11.
+Base.@inline LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix) = _mul!(C, A.M, B, true, false, _left_cache(A, B))
+Base.@inline LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector) = _mul!(y, A.M, x, true, false, _left_cache(A, x))
+Base.@inline LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix) = _mul!(C, A, B.M, true, false, _right_cache(B, A))
+Base.@inline function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix, α::Number, β::Number)
+    return _mul!(C, A.M, B, α, β, _left_cache(A, B))
+end
+Base.@inline function LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector, α::Number, β::Number)
+    return _mul!(y, A.M, x, α, β, _left_cache(A, x))
+end
+Base.@inline function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix, α::Number, β::Number)
+    return _mul!(C, A, B.M, α, β, _right_cache(B, A))
+end
+
+# Factored operands (FactoredMatrix, its wrappers, or another CachedFactoredMatrix)
+# are supported like on a plain FactoredMatrix.
+for BT in (:FactoredMatrix, :AdjOrTransFM)
+    @eval begin
+        LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::$BT) = _mul!(C, A.M, rewrap(B), true, false, _left_cache(A, B))
+        LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::$BT) = _fmul!(C, A.M, rewrap(B), _left_cache(A, B))
+        LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::$BT, α::Number, β::Number) = _mul!(C, A.M, rewrap(B), α, β, _left_cache(A, B))
+        LinearAlgebra.mul!(C::AbstractMatrix, A::$BT, B::CachedFactoredMatrix) = _mul!(C, rewrap(A), B.M, true, false, _right_cache(B, A))
+        LinearAlgebra.mul!(C::FactoredMatrix, A::$BT, B::CachedFactoredMatrix) = _fmul!(C, rewrap(A), B.M, _right_cache(B, A))
+        LinearAlgebra.mul!(C::AbstractMatrix, A::$BT, B::CachedFactoredMatrix, α::Number, β::Number) = _mul!(C, rewrap(A), B.M, α, β, _right_cache(B, A))
+    end
+end
+LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix) = _mul!(C, A.M, B.M, true, false, _left_cache(A, B.M))
+LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix) = _fmul!(C, A.M, B.M, _left_cache(A, B.M))
+function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix, α::Number, β::Number)
+    return _mul!(C, A.M, B.M, α, β, _left_cache(A, B.M))
+end
+
+# Products with factored operands stay factored (like FactoredMatrix products), so no
+# large intermediates arise and the buffers are not needed.
+Base.:(*)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M * B
+Base.:(*)(A::FactoredMatrix, B::CachedFactoredMatrix) = A * B.M
+Base.:(*)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M * B.M
+Base.:(*)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M * rewrap(B)
+Base.:(*)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) * B.M
+
+# Allocating products with dense operands: the output has the element type of the
+# ordinary matrix product; the intermediates use the buffers whenever they fit.
 function Base.:(*)(A::CachedFactoredMatrix{T}, B::AbstractMatrix) where {T}
-    S = promote_type(T, eltype(B))
-    return mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A.M, B; cache = _usable_cache(A.ws, B))
+    S = _prodtype(T, eltype(B))
+    return _mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A.M, B, true, false, _left_cache(A, B))
 end
 function Base.:(*)(A::CachedFactoredMatrix{T}, x::AbstractVector) where {T}
-    S = promote_type(T, eltype(x))
-    return mul!(Vector{S}(undef, size(A, 1)), A.M, x; cache = _usable_cache(A.ws, x))
+    S = _prodtype(T, eltype(x))
+    return _mul!(Vector{S}(undef, size(A, 1)), A.M, x, true, false, _left_cache(A, x))
 end
 function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
-    S = promote_type(T, eltype(A))
-    return mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A, B.M; cache = _usable_cache(B.ws, A))
+    S = _prodtype(T, eltype(A))
+    return _mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A, B.M, true, false, _right_cache(B, A))
 end
