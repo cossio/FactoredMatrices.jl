@@ -7,26 +7,3 @@ All notable changes to this project will be documented in this file. The format 
 ### Fixed
 
 - `adjoint` and `transpose` of a `FactoredMatrix` were swapped for complex element types: `adjoint` conjugated the factors (computing the transpose) and `transpose` did not (computing the adjoint). Real element types were unaffected.
-
-## 2.1.0
-
-### Added
-
-- `svd` defined for `FactoredMatrix` using `qr` decomposition.
-
-## 2.0.0
-
-### Breaking changes
-
-- Package is now called `FactoredMatrices`, to avoid conflict with [LowRankMatrices.jl](https://github.com/JuliaLinearAlgebra/LowRankMatrices.jl).
-- `LowRankMatrix` is now called `FactoredMatrix`.
-
-## 1.0.0 - yanked
-
-This version was yanked because of a name conflict with [LowRankMatrices.jl].
-
-### Added
-
-- This CHANGELOG file.
-- Register at https://github.com/cossio/CossioJuliaRegistry (yanked).
-- `LowRankMatrix` type.
