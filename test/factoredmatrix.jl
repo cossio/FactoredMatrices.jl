@@ -49,3 +49,14 @@ v = randn(12)
 A = FactoredMatrix(randn(20, 2), randn(12, 2))
 v = randn(20)
 @test v' * A ≈ v' * Matrix(A)
+
+# adjoint / transpose — complex eltype catches conjugation mistakes
+for T in (Float64, ComplexF64)
+    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4))
+    @test @inferred(adjoint(A)) isa FactoredMatrix
+    @test @inferred(transpose(A)) isa FactoredMatrix
+    @test Matrix(A') ≈ Matrix(A)'
+    @test Matrix(transpose(A)) ≈ transpose(Matrix(A))
+    @test Matrix((A')') ≈ Matrix(A)
+    @test Matrix(transpose(transpose(A))) ≈ Matrix(A)
+end
