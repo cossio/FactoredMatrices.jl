@@ -11,6 +11,11 @@ using KrylovKit: svdsolve
     @test F1.S ≈ F.S[1:3]
     @test F1.U .* sign.(F1.U[1:1, :]) ≈ F.U[:, 1:3] .* sign.(F.U[1:1, 1:3])
     @test F1.Vt .* sign.(F1.Vt[:, 1:1]) ≈ F.Vt[1:3, :] .* sign.(F.Vt[1:3, 1:1])
+
+    # the factorization is reduced: only min(m, n, r) singular values
+    @test length(F1.S) == 3
+    @test size(F1.U) == (20, 3)
+    @test size(F1.Vt) == (3, 12)
 end
 
 @testset "Krylov" begin

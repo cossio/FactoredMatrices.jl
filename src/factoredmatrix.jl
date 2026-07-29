@@ -1,5 +1,19 @@
 # based on: https://github.com/JuliaLinearAlgebra/LowRankApprox.jl/blob/master/src/lowrankmatrix.jl
 
+"""
+    FactoredMatrix(u, v)
+
+A lazy matrix stored as the product `u * v'`, where `u` is `m × r` and `v` is `n × r`
+(typically with `r < m, n`). The resulting matrix has size `m × n` and rank at most `r`.
+
+The full dense matrix can be recovered with `Matrix(A)`. Operations such as scalar
+multiplication, matrix products, `adjoint`, `transpose`, and `svd` exploit the factored
+representation and return `FactoredMatrix` results where possible.
+
+If `u` or `v` are vectors, they are treated as `m × 1` or `n × 1` matrices, respectively.
+If `u` and `v` have different element types, both are converted to their promoted
+element type.
+"""
 struct FactoredMatrix{T, U, V} <: AbstractMatrix{T}
     u::U # m x r Matrix
     v::V # n x r Matrix
@@ -12,6 +26,11 @@ struct FactoredMatrix{T, U, V} <: AbstractMatrix{T}
 end
 
 FactoredMatrix(u::AbstractMatrix{T}, v::AbstractMatrix{T}) where {T} = FactoredMatrix{T, typeof(u), typeof(v)}(u, v)
+
+function FactoredMatrix(u::AbstractMatrix, v::AbstractMatrix)
+    T = promote_type(eltype(u), eltype(v))
+    return FactoredMatrix(convert(AbstractMatrix{T}, u), convert(AbstractMatrix{T}, v))
+end
 FactoredMatrix(u::AbstractVector, v::AbstractMatrix) = FactoredMatrix(reshape(u, :, 1), v)
 FactoredMatrix(u::AbstractMatrix, v::AbstractVector) = FactoredMatrix(u, reshape(v, :, 1))
 FactoredMatrix(u::AbstractVector, v::AbstractVector) = FactoredMatrix(reshape(u, :, 1), reshape(v, :, 1))
@@ -27,7 +46,7 @@ Base.Array(L::FactoredMatrix) = Matrix(L)
 Base.copy(L::FactoredMatrix) = FactoredMatrix(copy(L.u), copy(L.v))
 
 Base.:(*)(a::Number, L::FactoredMatrix) = FactoredMatrix(a * L.u, L.v)
-Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, a * L.v)
+Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, conj(a) * L.v)
 Base.:(*)(A::FactoredMatrix, B::Adjoint{<:Any, <:FactoredMatrix}) = A * adjoint(parent(B)) # override default
 
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
@@ -56,6 +75,18 @@ Base.:(*)(A::Transpose{T, <:AbstractVector}, L::FactoredMatrix) where {T} = invo
 
 Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMatrix{", eltype(M), "} of rank ", rank(M), ".")
 
+"""
+    svd(A::FactoredMatrix)
+
+Compute the singular value decomposition of `A`, exploiting the factored representation.
+Only QR decompositions of the factors and an SVD of the `min(m, r) × min(n, r)` core are
+required, which is cheaper than an SVD of the materialized full matrix when `r < m, n`.
+
+Returns a reduced `LinearAlgebra.SVD` factorization object with `min(m, n, r)` singular
+values, where `U` is `m × min(m, n, r)` and `Vt` is `min(m, n, r) × n`. When
+`r < min(m, n)` this is smaller than the factorization returned by `svd(Matrix(A))`,
+which has `min(m, n)` singular values; the omitted singular values are all zero.
+"""
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)
     qrv = qr(A.v)

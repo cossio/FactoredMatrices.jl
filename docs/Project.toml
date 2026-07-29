@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+FactoredMatrices = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
+
+[sources]
+FactoredMatrices = {path = ".."}
+
+[compat]
+Documenter = "1"
