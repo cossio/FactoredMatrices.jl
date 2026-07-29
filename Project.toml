@@ -1,6 +1,6 @@
 name = "FactoredMatrices"
 uuid = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
-authors = ["Jorge FdCD <jorge.fdcd@icloud.com>"]
+authors = ["cossio <cossio@users.noreply.github.com>"]
 version = "1.0.0"
 
 [deps]
