@@ -39,7 +39,7 @@ Base.Array(L::FactoredMatrix) = Matrix(L)
 Base.copy(L::FactoredMatrix) = FactoredMatrix(copy(L.u), copy(L.v))
 
 Base.:(*)(a::Number, L::FactoredMatrix) = FactoredMatrix(a * L.u, L.v)
-Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, conj(a) * L.v) # conj because Matrix(L) = L.u * L.v'
+Base.:(*)(L::FactoredMatrix, a::Number) = FactoredMatrix(L.u, conj(a) * L.v)
 Base.:(*)(A::FactoredMatrix, B::Adjoint{<:Any, <:FactoredMatrix}) = A * adjoint(parent(B)) # override default
 
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
