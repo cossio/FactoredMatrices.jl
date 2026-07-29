@@ -1,57 +1,68 @@
 using Test: @testset, @test, @test_throws, @inferred
-using LinearAlgebra: rank, pinv, Adjoint, Diagonal, UpperTriangular, LowerTriangular
+using LinearAlgebra: Adjoint, Diagonal, Factorization, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
 using FactoredMatrices: FactoredMatrix
 
-@test iszero(FactoredMatrix(zeros(10, 3), zeros(5, 3)).u)
-@test iszero(FactoredMatrix(zeros(10, 3), zeros(5, 3)).v)
-@test iszero(Matrix(FactoredMatrix(zeros(10, 3), zeros(5, 3))))
+# the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
+@test_throws ArgumentError FactoredMatrix(randn(5, 2), randn(4, 2))
+@test_throws ArgumentError FactoredMatrix(randn(5), randn(4))
+u = randn(5, 2)
+v = randn(4, 2)
+A = @inferred FactoredMatrix(u, v')
+@test A isa Factorization{Float64}
+@test Matrix(A) == u * v'
+@test A.u === u && A.v === v # factors are stored, not copied
 
-A = FactoredMatrix(randn(20, 4), randn(12, 4))
-@test Matrix(@inferred 2A) ≈ Matrix(@inferred A * 2) ≈ 2Matrix(A)
-
-A = FactoredMatrix(randn(20, 4), randn(12, 4))
-B = FactoredMatrix(randn(12, 2), randn(7, 2))
-@test Matrix(A * B) ≈ Matrix(A) * Matrix(B)
-@test size(Matrix(A * B)) == size(A * B)
-@test rank(A * B) == 2
-@test Matrix(A) * Matrix(B) ≈ Matrix(A * Matrix(B)) ≈ Matrix(Matrix(A) * B) ≈ Matrix(A * B)
-@test A * B isa FactoredMatrix
-@inferred A * B
-
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
-B = FactoredMatrix(randn(12, 4), randn(7, 4))
-@test Matrix(A * B) ≈ Matrix(A) * Matrix(B)
-@test rank(A * B) == 2
-@test A * B isa FactoredMatrix
-@inferred A * B
-
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
-B = FactoredMatrix(randn(10, 2), randn(14, 2))
-@test_throws DimensionMismatch A * B
-@test_throws DimensionMismatch B * A
-
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
-B = randn(12, 14)
-@test A * B isa FactoredMatrix
-@test rank(A * B) == size((A * B).u, 2) == 2
-@test Matrix(A) * B ≈ Matrix(A * B)
-
-A = randn(20, 12)
-B = FactoredMatrix(randn(12, 2), randn(14, 2))
-@test A * B isa FactoredMatrix
-@test rank(A * B) == size((A * B).u, 2) == 2
-@test A * Matrix(B) ≈ Matrix(A * B)
-
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
-v = randn(12)
-@test A * v ≈ Matrix(A) * v
-
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
-v = randn(20)
-@test v' * A ≈ v' * Matrix(A)
-
+# transposed second factor, and complex element types
 for T in (Float64, ComplexF64)
-    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4))
+    local u = randn(T, 5, 2)
+    local v = randn(T, 4, 2)
+    @test Matrix(@inferred FactoredMatrix(u, v')) == u * v'
+    @test Matrix(@inferred FactoredMatrix(u, transpose(v))) ≈ u * transpose(v)
+end
+
+# u and v must have the same number of columns
+@test_throws ArgumentError FactoredMatrix(randn(5, 2), randn(4, 3)')
+
+# vector arguments are treated as one-column matrices
+x = randn(5)
+y = randn(4)
+V = randn(4, 1)
+U = randn(5, 1)
+@test Matrix(@inferred FactoredMatrix(x, V')) ≈ x * vec(V)'
+@test Matrix(@inferred FactoredMatrix(U, y')) ≈ vec(U) * y'
+@test Matrix(@inferred FactoredMatrix(x, y')) ≈ x * y'
+@test rank(FactoredMatrix(x, V')) == rank(FactoredMatrix(U, y')) == rank(FactoredMatrix(x, y')) == 1
+
+# mixed element types promote
+A = FactoredMatrix(randn(Float32, 5, 2), randn(Float64, 4, 2)')
+@test eltype(A) == Float64
+
+# size, length, rank, getindex
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
+@test size(A) == (20, 12)
+@test size(A, 1) == 20 && size(A, 2) == 12 && size(A, 3) == 1
+@test_throws ArgumentError size(A, 0)
+@test length(A) == 20 * 12
+@test rank(A) == 4
+M = Matrix(A)
+@test all(A[i, j] ≈ M[i, j] for i in 1:20, j in 1:12)
+@test_throws BoundsError A[0, 1]
+@test_throws BoundsError A[1, 13]
+
+# iszero
+@test iszero(Matrix(FactoredMatrix(zeros(10, 3), zeros(5, 3)')))
+@test @inferred iszero(FactoredMatrix(zeros(10, 3), randn(5, 3)'))
+@test iszero(FactoredMatrix(randn(10, 3), zeros(5, 3)'))
+@test !iszero(FactoredMatrix(randn(10, 3), randn(5, 3)'))
+# 0 * NaN = NaN and 0 * Inf = NaN, so these are not zero matrices
+@test !iszero(FactoredMatrix(zeros(10, 3), fill(NaN, 5, 3)'))
+@test !iszero(FactoredMatrix(fill(NaN, 10, 3), zeros(5, 3)'))
+@test !iszero(FactoredMatrix(zeros(10, 3), fill(Inf, 5, 3)'))
+@test !iszero(FactoredMatrix(fill(-Inf, 10, 3), zeros(5, 3)'))
+
+# adjoint and transpose
+for T in (Float64, ComplexF64)
+    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)')
     @test @inferred(adjoint(A)) isa FactoredMatrix
     @test @inferred(transpose(A)) isa FactoredMatrix
     @test Matrix(A') ≈ Matrix(A)'
@@ -60,28 +71,8 @@ for T in (Float64, ComplexF64)
     @test Matrix(transpose(transpose(A))) ≈ Matrix(A)
 end
 
-# u and v must have the same number of columns
-@test_throws ArgumentError FactoredMatrix(randn(5, 2), randn(4, 3))
-
-# vector arguments are reshaped to single-column matrices
-u = randn(5)
-v = randn(4)
-U = randn(5, 1)
-V = randn(4, 1)
-@test Matrix(@inferred FactoredMatrix(u, V)) ≈ u * vec(V)'
-@test Matrix(@inferred FactoredMatrix(U, v)) ≈ vec(U) * v'
-@test Matrix(@inferred FactoredMatrix(u, v)) ≈ u * v'
-@test rank(FactoredMatrix(u, V)) == rank(FactoredMatrix(U, v)) == rank(FactoredMatrix(u, v)) == 1
-
-# iszero
-@test @inferred iszero(FactoredMatrix(zeros(10, 3), randn(5, 3)))
-@test iszero(FactoredMatrix(randn(10, 3), zeros(5, 3)))
-@test !iszero(FactoredMatrix(randn(10, 3), randn(5, 3)))
-# 0 * NaN = NaN, so these are not zero matrices
-@test !iszero(FactoredMatrix(zeros(10, 3), fill(NaN, 5, 3)))
-@test !iszero(FactoredMatrix(fill(NaN, 10, 3), zeros(5, 3)))
-
-A = FactoredMatrix(randn(20, 4), randn(12, 4))
+# conversion and copy
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
 @test Array(A) == Matrix(A)
 B = @inferred copy(A)
 @test B isa FactoredMatrix
@@ -89,23 +80,85 @@ B = @inferred copy(A)
 @test B.u == A.u && B.u !== A.u
 @test B.v == A.v && B.v !== A.v
 
-# left division: square invertible case
-A = FactoredMatrix(randn(4, 4), randn(4, 4))
-b = randn(4)
-B = randn(4, 3)
-@test A * (A \ b) ≈ b
-@test A \ b ≈ Matrix(A) \ b
-@test A \ B ≈ Matrix(A) \ B
+# show
+A = FactoredMatrix(randn(3, 2), randn(5, 2)')
+@test sprint(show, A) == "FactoredMatrix{Float64} of size (3, 5) and rank 2"
+@test sprint(show, MIME("text/plain"), A) == sprint(show, A)
 
-# left division: low-rank case gives the pseudoinverse solution
-A = FactoredMatrix(randn(12, 3), randn(15, 3))
-b = randn(12)
-B = randn(12, 5)
-@test A \ b ≈ pinv(Matrix(A)) * b
-@test A \ B ≈ pinv(Matrix(A)) * B
+# scalar multiples and division
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
+@test Matrix(@inferred 2A) ≈ Matrix(@inferred A * 2) ≈ 2Matrix(A)
+@test Matrix(@inferred A / 2) ≈ Matrix(A) / 2
+@test Matrix(@inferred 2 \ A) ≈ 2 \ Matrix(A)
+@test Matrix(@inferred -A) ≈ -Matrix(A)
+@test (+A) === A
+a = 1 + 2im
+A = FactoredMatrix(randn(ComplexF64, 20, 4), randn(ComplexF64, 12, 4)')
+@test Matrix(a * A) ≈ a * Matrix(A)
+@test Matrix(A * a) ≈ Matrix(A) * a # scalar must not be conjugated by the implicit adjoint
+@test Matrix(A / a) ≈ Matrix(A) / a
+@test Matrix(a \ A) ≈ a \ Matrix(A)
 
-# products with Diagonal and triangular matrices (dispatch ambiguity resolutions)
-A = FactoredMatrix(randn(20, 2), randn(12, 2))
+# lazy sums and differences by factor concatenation
+for T in (Float64, ComplexF64)
+    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)')
+    local B = FactoredMatrix(randn(T, 20, 2), randn(T, 12, 2)')
+    @test @inferred(A + B) isa FactoredMatrix
+    @test @inferred(A - B) isa FactoredMatrix
+    @test Matrix(A + B) ≈ Matrix(A) + Matrix(B)
+    @test Matrix(A - B) ≈ Matrix(A) - Matrix(B)
+    @test rank(A + B) == rank(A - B) == rank(A) + rank(B)
+end
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
+B = FactoredMatrix(randn(21, 4), randn(12, 4)')
+@test_throws DimensionMismatch A + B
+@test_throws DimensionMismatch A - FactoredMatrix(randn(20, 4), randn(13, 4)')
+
+# products of two factored matrices keep the smaller rank
+A = FactoredMatrix(randn(20, 4), randn(12, 4)')
+B = FactoredMatrix(randn(12, 2), randn(7, 2)')
+@test Matrix(A * B) ≈ Matrix(A) * Matrix(B)
+@test size(Matrix(A * B)) == size(A * B)
+@test rank(A * B) == 2
+@test Matrix(A) * Matrix(B) ≈ Matrix(A * Matrix(B)) ≈ Matrix(Matrix(A) * B) ≈ Matrix(A * B)
+@test A * B isa FactoredMatrix
+@inferred A * B
+
+A = FactoredMatrix(randn(20, 2), randn(12, 2)')
+B = FactoredMatrix(randn(12, 4), randn(7, 4)')
+@test Matrix(A * B) ≈ Matrix(A) * Matrix(B)
+@test rank(A * B) == 2
+@test A * B isa FactoredMatrix
+@inferred A * B
+
+A = FactoredMatrix(randn(20, 2), randn(12, 2)')
+B = FactoredMatrix(randn(10, 2), randn(14, 2)')
+@test_throws DimensionMismatch A * B
+@test_throws DimensionMismatch B * A
+
+# products with dense matrices and vectors
+A = FactoredMatrix(randn(20, 2), randn(12, 2)')
+B = randn(12, 14)
+@test A * B isa FactoredMatrix
+@test rank(A * B) == size((A * B).u, 2) == 2
+@test Matrix(A) * B ≈ Matrix(A * B)
+
+A = randn(20, 12)
+B = FactoredMatrix(randn(12, 2), randn(14, 2)')
+@test A * B isa FactoredMatrix
+@test rank(A * B) == size((A * B).u, 2) == 2
+@test A * Matrix(B) ≈ Matrix(A * B)
+
+A = FactoredMatrix(randn(20, 2), randn(12, 2)')
+x = randn(12)
+@test A * x ≈ Matrix(A) * x
+y = randn(20)
+@test y' * A ≈ y' * Matrix(A)
+@test transpose(y) * A isa FactoredMatrix
+@test Matrix(transpose(y) * A) ≈ transpose(y) * Matrix(A)
+
+# products with Diagonal and triangular matrices go through the generic method
+A = FactoredMatrix(randn(20, 2), randn(12, 2)')
 D = Diagonal(randn(12))
 @test @inferred(A * D) isa FactoredMatrix
 @test Matrix(A * D) ≈ Matrix(A) * D
@@ -119,20 +172,68 @@ T = LowerTriangular(randn(20, 20))
 @test @inferred(T * A) isa FactoredMatrix
 @test Matrix(T * A) ≈ T * Matrix(A)
 
-# transposed vector times FactoredMatrix (dispatch ambiguity resolution)
-x = randn(20)
-@test transpose(x) * A isa FactoredMatrix
-@test Matrix(transpose(x) * A) ≈ transpose(x) * Matrix(A)
-
-# product with an explicit Adjoint wrapper keeps the factored structure
+# products with explicit Adjoint/Transpose wrappers keep the factored structure
 for T in (Float64, ComplexF64)
-    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4))
-    local B = FactoredMatrix(randn(T, 7, 2), randn(T, 12, 2))
+    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)') # 20 × 12
+    local B = FactoredMatrix(randn(T, 7, 2), randn(T, 12, 2)') # 7 × 12
+    local B3 = FactoredMatrix(randn(T, 9, 2), randn(T, 20, 2)') # 9 × 20
+    local C = randn(T, 12, 20)
+    local x = randn(T, 20)
+    local y = randn(T, 7)
+    local z = randn(T, 12)
     @test @inferred(A * Adjoint(B)) isa FactoredMatrix
     @test Matrix(A * Adjoint(B)) ≈ Matrix(A) * Matrix(B)'
     @test rank(A * Adjoint(B)) == 2 # min(rank(A), rank(B)), not rank(A)
+    @test Matrix(A * Transpose(B)) ≈ Matrix(A) * transpose(Matrix(B))
+    @test Matrix(Adjoint(A) * Adjoint(B3)) ≈ Matrix(A)' * Matrix(B3)'
+    @test Matrix(Adjoint(A) * B3') ≈ Matrix(A)' * Matrix(B3)'
+    @test Matrix(A' * Adjoint(B3)) ≈ Matrix(A)' * Matrix(B3)'
+    @test Matrix(Adjoint(A)) ≈ Matrix(A)'
+    @test Matrix(Transpose(A)) ≈ transpose(Matrix(A))
+    @test Matrix(Adjoint(A) * C') ≈ Matrix(A)' * C'
+    @test Matrix(C' * Adjoint(A)) ≈ C' * Matrix(A)'
+    @test Adjoint(A) * x ≈ Matrix(A)' * x
+    @test y' * Adjoint(B') ≈ y' * Matrix(B')'
+    @test Matrix(transpose(z) * Transpose(A)) ≈ transpose(z) * transpose(Matrix(A))
 end
 
-# show
-A = FactoredMatrix(randn(3, 2), randn(5, 2))
-@test sprint(show, MIME("text/plain"), A) == "FactoredMatrix{Float64} of rank 2."
+# left division: square invertible case
+A = FactoredMatrix(randn(4, 4), randn(4, 4)')
+b = randn(4)
+B = randn(4, 3)
+@test A * (A \ b) ≈ b
+@test A \ b ≈ Matrix(A) \ b
+@test A \ B ≈ Matrix(A) \ B
+
+# left division: complex right-hand side with a real factorization (disambiguation
+# against the LinearAlgebra Factorization fallback)
+bc = randn(ComplexF64, 4)
+Bc = randn(ComplexF64, 4, 3)
+@test A \ bc ≈ Matrix(A) \ bc
+@test A \ Bc ≈ Matrix(A) \ Bc
+
+# left division: low-rank case gives the pseudoinverse solution
+A = FactoredMatrix(randn(12, 3), randn(15, 3)')
+b = randn(12)
+B = randn(12, 5)
+@test A \ b ≈ pinv(Matrix(A)) * b
+@test A \ B ≈ pinv(Matrix(A)) * B
+
+# dot, sum(abs2), norm, tr
+for T in (Float64, ComplexF64)
+    local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)')
+    local B = FactoredMatrix(randn(T, 20, 2), randn(T, 12, 2)')
+    local M = randn(T, 20, 12)
+    @test dot(A, B) ≈ dot(Matrix(A), Matrix(B))
+    @test dot(A, A) ≈ sum(abs2, Matrix(A))
+    @test dot(A, M) ≈ dot(Matrix(A), M)
+    @test dot(M, A) ≈ dot(M, Matrix(A))
+    @test sum(abs2, A) ≈ sum(abs2, Matrix(A))
+    @test norm(A) ≈ norm(Matrix(A))
+    @test norm(A, 2) ≈ norm(Matrix(A))
+    @test_throws ArgumentError norm(A, 1)
+    local S = FactoredMatrix(randn(T, 9, 3), randn(T, 9, 3)')
+    @test tr(S) ≈ tr(Matrix(S))
+    @test_throws DimensionMismatch tr(A)
+end
+@test iszero(norm(FactoredMatrix(zeros(5, 2), zeros(4, 2)')))

@@ -1,7 +1,7 @@
 name = "FactoredMatrices"
 uuid = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
 authors = ["cossio <cossio@users.noreply.github.com>"]
-version = "1.0.0"
+version = "2.0.0"
 
 [workspace]
 projects = ["test"]
