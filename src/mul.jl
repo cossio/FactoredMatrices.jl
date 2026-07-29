@@ -194,26 +194,36 @@ Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
-LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix) = mul!(C, A.M, B; cache = A.ws)
-LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector) = mul!(y, A.M, x; cache = A.ws)
-LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix) = mul!(C, A, B.M; cache = B.ws)
+# The buffers have the matrix's element type, so they can only hold intermediates that
+# do not promote beyond it; for promoting operands (e.g. a real cached matrix times a
+# complex one) fall back to allocating intermediates, preserving the ordinary
+# mixed-element-type multiplication semantics.
+_usable_cache(ws::Workspace{T}, B) where {T} = promote_type(T, eltype(B)) === T ? ws : nothing
+
+LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix) = mul!(C, A.M, B; cache = _usable_cache(A.ws, B))
+LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector) = mul!(y, A.M, x; cache = _usable_cache(A.ws, x))
+LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix) = mul!(C, A, B.M; cache = _usable_cache(B.ws, A))
 function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::AbstractMatrix, α::Number, β::Number)
-    return mul!(C, A.M, B, α, β; cache = A.ws)
+    return mul!(C, A.M, B, α, β; cache = _usable_cache(A.ws, B))
 end
 function LinearAlgebra.mul!(y::AbstractVector, A::CachedFactoredMatrix, x::AbstractVector, α::Number, β::Number)
-    return mul!(y, A.M, x, α, β; cache = A.ws)
+    return mul!(y, A.M, x, α, β; cache = _usable_cache(A.ws, x))
 end
 function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::CachedFactoredMatrix, α::Number, β::Number)
-    return mul!(C, A, B.M, α, β; cache = B.ws)
+    return mul!(C, A, B.M, α, β; cache = _usable_cache(B.ws, A))
 end
 
-# Allocating products: only the output is allocated; the intermediates use the buffers.
+# Allocating products: the output has the promoted element type; the intermediates use
+# the buffers whenever the element types allow it.
 function Base.:(*)(A::CachedFactoredMatrix{T}, B::AbstractMatrix) where {T}
-    return mul!(Matrix{T}(undef, size(A, 1), size(B, 2)), A.M, B; cache = A.ws)
+    S = promote_type(T, eltype(B))
+    return mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A.M, B; cache = _usable_cache(A.ws, B))
 end
 function Base.:(*)(A::CachedFactoredMatrix{T}, x::AbstractVector) where {T}
-    return mul!(Vector{T}(undef, size(A, 1)), A.M, x; cache = A.ws)
+    S = promote_type(T, eltype(x))
+    return mul!(Vector{S}(undef, size(A, 1)), A.M, x; cache = _usable_cache(A.ws, x))
 end
 function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
-    return mul!(Matrix{T}(undef, size(A, 1), size(B, 2)), A, B.M; cache = B.ws)
+    S = promote_type(T, eltype(A))
+    return mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A, B.M; cache = _usable_cache(B.ws, A))
 end

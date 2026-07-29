@@ -95,12 +95,13 @@ Exact elementwise equality of the represented matrices. Entries are compared one
 time from the factors (`O(m * n * rank)` work, `O(1)` memory), so the dense matrices are
 never materialized. Since floating-point roundoff makes exact equality of two different
 factorizations of the same matrix unlikely, [`isapprox`](@ref) is usually what you want.
+
+There is deliberately no shortcut for equal factors: equal factors can still represent
+matrices with `NaN` entries (e.g. from `0 * Inf` products or overflowing sums), which
+compare unequal elementwise, like dense arrays containing `NaN`.
 """
 function Base.:(==)(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
-    if A.u == B.u && A.v == B.v
-        return true # identical factors give identical entries
-    end
     return all(A[i, j] == B[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 
@@ -122,16 +123,29 @@ end
 _rtoldefault(A, B, atol) = iszero(atol) ? √eps(float(promote_type(real(eltype(A)), real(eltype(B))))) : 0
 
 """
-    isapprox(A::FactoredMatrix, B::FactoredMatrix; atol = 0, rtol)
+    isapprox(A::FactoredMatrix, B::FactoredMatrix; atol = 0, rtol, nans = false)
 
 Approximate equality `norm(A - B) ≤ max(atol, rtol * max(norm(A), norm(B)))` in the
 Frobenius norm, like `isapprox` for arrays. The difference `A - B` is itself low-rank
 (rank at most `rank(A) + rank(B)`), so its norm is evaluated from thin QR factorizations
 of the concatenated factors at `O((m + n) * (rank(A) + rank(B))²)` cost, without ever
 materializing the dense matrices.
+
+Like `isapprox` for arrays, when the distance is not finite (matrices with `Inf` or
+`NaN` entries) the comparison falls back to elementwise approximate equality, computed
+one entry at a time from the factors.
 """
-function Base.isapprox(A::FactoredMatrix, B::FactoredMatrix; atol::Real = 0, rtol::Real = _rtoldefault(A, B, atol))
-    return norm(A - B) ≤ max(atol, rtol * max(norm(A), norm(B)))
+function Base.isapprox(
+        A::FactoredMatrix, B::FactoredMatrix;
+        atol::Real = 0, rtol::Real = _rtoldefault(A, B, atol), nans::Bool = false
+    )
+    d = norm(A - B)
+    if isfinite(d)
+        return d ≤ max(atol, rtol * max(norm(A), norm(B)))
+    else
+        # entrywise fallback, matching isapprox for AbstractArray
+        return all(isapprox(A[i, j], B[i, j]; atol, rtol, nans) for i in axes(A.u, 1), j in axes(A.v, 1))
+    end
 end
 
 #=== scalar multiples and low-rank sums ===#

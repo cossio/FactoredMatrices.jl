@@ -31,6 +31,12 @@ C = FactoredMatrix(u[:, P], v[:, P]')
 N = FactoredMatrix(fill(NaN, 2, 1), ones(2, 1)')
 @test N != N
 
+# equal factors can still represent NaN entries (0 * Inf = NaN), which compare unequal;
+# there must be no equal-factor shortcut
+Z = FactoredMatrix(zeros(2, 1), fill(Inf, 2, 1)')
+@test Z != Z
+@test Z != FactoredMatrix(zeros(2, 1), fill(Inf, 2, 1)')
+
 # signed zeros: 0.0 == -0.0, so the hashes must also agree
 Zp = FactoredMatrix(fill(0.0, 2, 1), ones(2, 1)')
 Zm = FactoredMatrix(fill(-0.0, 2, 1), ones(2, 1)')
@@ -53,6 +59,16 @@ D = FactoredMatrix(3 * u, (v / 3)') # same matrix up to roundoff, but not exactl
 @test isapprox(A, A + FactoredMatrix(fill(1.0e-3, 10, 1), fill(1.0e-3, 8, 1)'); atol = 1)
 @test !isapprox(A, 2A; atol = 1.0e-3, rtol = 0)
 @test_throws DimensionMismatch isapprox(A, FactoredMatrix(randn(9, 3), randn(8, 3)'))
+
+# non-finite entries: the distance is not finite, so isapprox falls back to elementwise
+# comparison, treating exactly equal infinities as equal (like isapprox for arrays)
+I1 = FactoredMatrix(fill(Inf, 1, 1), ones(1, 1)')
+@test I1 ≈ I1
+@test I1 ≈ FactoredMatrix(fill(Inf, 1, 1), ones(1, 1)')
+@test !(I1 ≈ -I1)
+N1 = FactoredMatrix(fill(NaN, 1, 1), ones(1, 1)')
+@test !(N1 ≈ N1)
+@test isapprox(N1, N1; nans = true)
 
 # complex case
 uc = randn(ComplexF64, 6, 2)

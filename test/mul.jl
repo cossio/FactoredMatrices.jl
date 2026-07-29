@@ -172,6 +172,29 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test alloc_mul_cached(C, cfm, B) == 0
 end
 
+# cached products with a promoting operand fall back to allocating intermediates
+# instead of writing promoted values into the typed buffers
+L = FactoredMatrix(randn(6, 2), randn(5, 2)')
+cfm = FactoredMatrices.CachedFactoredMatrix(L, 4)
+Bc = randn(ComplexF64, 5, 4)
+xc = randn(ComplexF64, 5)
+Ac = randn(ComplexF64, 4, 6)
+@test cfm * Bc ≈ Matrix(L) * Bc
+@test eltype(cfm * Bc) == ComplexF64
+@test cfm * xc ≈ Matrix(L) * xc
+@test Ac * cfm ≈ Ac * Matrix(L)
+C = zeros(ComplexF64, 6, 4)
+@test mul!(C, cfm, Bc) ≈ Matrix(L) * Bc
+@test mul!(C, cfm, Bc, 2.0, 1.0) ≈ 3 * Matrix(L) * Bc
+c = zeros(ComplexF64, 6)
+@test mul!(c, cfm, xc) ≈ Matrix(L) * xc
+C = zeros(ComplexF64, 4, 5)
+@test mul!(C, Ac, cfm) ≈ Ac * Matrix(L)
+@test mul!(C, Ac, cfm, 2.0, 1.0) ≈ 3 * Ac * Matrix(L)
+c0 = randn(ComplexF64, 6)
+c = copy(c0)
+@test mul!(c, cfm, xc, 2.0, 3.0) ≈ 2 * (Matrix(L) * xc) + 3 * c0
+
 # Workspace constructors
 ws = FactoredMatrices.Workspace{Float64}(3, 7)
 @test size(ws.left) == (3, 7)
