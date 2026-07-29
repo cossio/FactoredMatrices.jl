@@ -49,11 +49,7 @@ jobs:
           arch: x64
       - uses: julia-actions/julia-downgrade-compat@2c401f8b47edbcafc2e1edbff8e71f33dce71822
         with:
-          # Include the test project: the root package depends only on the
-          # LinearAlgebra stdlib, so all versioned lower bounds live in
-          # test/Project.toml.
-          projects: '., test'
-          skip: LinearAlgebra,Test
+          projects: '.'
           mode: deps
       - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38
       - uses: julia-actions/julia-buildpkg@e3eb439fad4f9aba7da2667e7510e4a46ebc46e1
