@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ## Unreleased
 
+### Added
+
+- `FactoredMatrix` factors with different element types are now promoted to a common element type. In particular, multiplication by a type-promoting scalar (e.g. `(1 + im) * A` for a real `A`) now works instead of throwing a `MethodError`.
+
 ### Changed
 
 - Minimum supported Julia version is now 1.11 (was 1.9), as required by the ExplicitImports publicness check added to the test suite (`public` markers exist only on Julia 1.11+).

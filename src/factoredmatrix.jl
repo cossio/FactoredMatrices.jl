@@ -11,6 +11,8 @@ multiplication, matrix products, `adjoint`, `transpose`, and `svd` exploit the f
 representation and return `FactoredMatrix` results where possible.
 
 If `u` or `v` are vectors, they are treated as `m × 1` or `n × 1` matrices, respectively.
+If `u` and `v` have different element types, both are converted to their promoted
+element type.
 """
 struct FactoredMatrix{T, U, V} <: AbstractMatrix{T}
     u::U # m x r Matrix
@@ -24,6 +26,11 @@ struct FactoredMatrix{T, U, V} <: AbstractMatrix{T}
 end
 
 FactoredMatrix(u::AbstractMatrix{T}, v::AbstractMatrix{T}) where {T} = FactoredMatrix{T, typeof(u), typeof(v)}(u, v)
+
+function FactoredMatrix(u::AbstractMatrix, v::AbstractMatrix)
+    T = promote_type(eltype(u), eltype(v))
+    return FactoredMatrix(convert(AbstractMatrix{T}, u), convert(AbstractMatrix{T}, v))
+end
 FactoredMatrix(u::AbstractVector, v::AbstractMatrix) = FactoredMatrix(reshape(u, :, 1), v)
 FactoredMatrix(u::AbstractMatrix, v::AbstractVector) = FactoredMatrix(u, reshape(v, :, 1))
 FactoredMatrix(u::AbstractVector, v::AbstractVector) = FactoredMatrix(reshape(u, :, 1), reshape(v, :, 1))

@@ -15,6 +15,16 @@ a = 2 + 3im
 @test Matrix(@inferred a * A) ≈ a * Matrix(A)
 @test Matrix(@inferred A * a) ≈ Matrix(A) * a
 
+# factors with different element types are promoted to a common type,
+# so multiplication by a type-promoting scalar works
+A = FactoredMatrix(randn(20, 4), randn(12, 4))
+a = 1 + im
+@test Matrix(@inferred a * A) ≈ a * Matrix(A)
+@test Matrix(@inferred A * a) ≈ Matrix(A) * a
+B = @inferred FactoredMatrix(randn(Float32, 20, 4), randn(12, 4))
+@test eltype(B) == Float64
+@test B.u isa Matrix{Float64} && B.v isa Matrix{Float64}
+
 A = FactoredMatrix(randn(20, 4), randn(12, 4))
 B = FactoredMatrix(randn(12, 2), randn(7, 2))
 @test Matrix(A * B) ≈ Matrix(A) * Matrix(B)
