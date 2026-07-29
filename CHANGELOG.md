@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## Unreleased
 
+### Added
+
+- Documentation built with Documenter.jl and deployed to GitHub Pages, including docstrings for `FactoredMatrix` and `svd`.
+- CI and documentation badges in the README.
+
 ### Changed
 
 - Minimum supported Julia version is now 1.11 (was 1.9), as required by the ExplicitImports publicness check added to the test suite (`public` markers exist only on Julia 1.11+).

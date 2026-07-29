@@ -1,5 +1,17 @@
 # based on: https://github.com/JuliaLinearAlgebra/LowRankApprox.jl/blob/master/src/lowrankmatrix.jl
 
+"""
+    FactoredMatrix(u, v)
+
+A lazy matrix stored as the product `u * v'`, where `u` is `m × r` and `v` is `n × r`
+(typically with `r < m, n`). The resulting matrix has size `m × n` and rank at most `r`.
+
+The full dense matrix can be recovered with `Matrix(A)`. Operations such as scalar
+multiplication, matrix products, `adjoint`, `transpose`, and `svd` exploit the factored
+representation and return `FactoredMatrix` results where possible.
+
+If `u` or `v` are vectors, they are treated as `m × 1` or `n × 1` matrices, respectively.
+"""
 struct FactoredMatrix{T, U, V} <: AbstractMatrix{T}
     u::U # m x r Matrix
     v::V # n x r Matrix
@@ -56,6 +68,14 @@ Base.:(*)(A::Transpose{T, <:AbstractVector}, L::FactoredMatrix) where {T} = invo
 
 Base.show(io::IO, ::MIME"text/plain", M::FactoredMatrix) = print(io, "FactoredMatrix{", eltype(M), "} of rank ", rank(M), ".")
 
+"""
+    svd(A::FactoredMatrix)
+
+Compute the singular value decomposition of `A`, exploiting the factored representation.
+Only decompositions of the (small) `r × r` core and QR decompositions of the factors are
+required, avoiding the materialization of the full matrix. Returns a `LinearAlgebra.SVD`
+factorization object.
+"""
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)
     qrv = qr(A.v)
