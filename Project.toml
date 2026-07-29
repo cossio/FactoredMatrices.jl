@@ -3,6 +3,9 @@ uuid = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
 authors = ["cossio <cossio@users.noreply.github.com>"]
 version = "1.0.0"
 
+[workspace]
+projects = ["test"]
+
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
