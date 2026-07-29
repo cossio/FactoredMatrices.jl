@@ -1,8 +1,12 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+FactoredMatrices = "aa288701-83bc-4fd3-aba5-ac3dd7693cd5"
 KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
-Aqua = "0.7"
+Aqua = "0.8.14"
+ExplicitImports = "1.15"
+KrylovKit = "0.9, 0.10"
