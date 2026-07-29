@@ -19,7 +19,6 @@ FactoredMatrix(u::AbstractVector, v::AbstractVector) = FactoredMatrix(reshape(u,
 Base.size(L::FactoredMatrix) = (size(L.u, 1), size(L.v, 1))
 Base.iszero(L::FactoredMatrix) = iszero(L.u) && all(!isnan, L.v) || all(!isnan, L.u) && iszero(L.v)
 LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
-# L = u * v', so L' = v * u' (plain field swap) and transpose(L) = conj(v) * conj(u)'
 LinearAlgebra.adjoint(L::FactoredMatrix) = FactoredMatrix(L.v, L.u)
 LinearAlgebra.transpose(L::FactoredMatrix) = FactoredMatrix(conj(L.v), conj(L.u))
 
