@@ -37,13 +37,15 @@ jobs:
           # Fork and Dependabot PRs can't access secrets, so their uploads stay best-effort.
           fail_ci_if_error: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
   downgrade:
-    name: Downgrade compat - Julia 1 - ubuntu-latest - x64
+    name: Downgrade compat - Julia min - ubuntu-latest - x64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32
         with:
-          version: '1'
+          # 'min' resolves to the julia compat lower bound in Project.toml, so
+          # this job tests the oldest supported Julia with the oldest deps.
+          version: 'min'
           arch: x64
       - uses: julia-actions/julia-downgrade-compat@2c401f8b47edbcafc2e1edbff8e71f33dce71822
         with:
