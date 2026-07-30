@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws, @inferred
-using LinearAlgebra: Adjoint, Diagonal, Factorization, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
+using LinearAlgebra: Adjoint, Diagonal, Factorization, I, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
 using FactoredMatrices: FactoredMatrix
 
 # the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
@@ -108,6 +108,16 @@ A = FactoredMatrix(randn(20, 4), randn(12, 4)')
 a = 1 + im
 @test Matrix(@inferred a * A) ≈ a * Matrix(A)
 @test Matrix(@inferred A * a) ≈ Matrix(A) * a
+
+# UniformScaling products reduce to scalar multiplication
+A = FactoredMatrix(randn(6, 2), randn(5, 2)')
+@test A * I isa FactoredMatrix
+@test Matrix(A * I) ≈ Matrix(A)
+@test Matrix(I * A) ≈ Matrix(A)
+@test Matrix(A * (2I)) ≈ 2 * Matrix(A)
+@test Matrix((3I) * A) ≈ 3 * Matrix(A)
+@test Matrix(Adjoint(A) * (2I)) ≈ 2 * Matrix(A)'
+@test Matrix((2I) * Transpose(A)) ≈ 2 * transpose(Matrix(A))
 
 # lazy sums and differences by factor concatenation
 for T in (Float64, ComplexF64)
@@ -270,6 +280,14 @@ Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
 # equal factors (not just identical objects) also take the stable self-dot path
 @test dot(Afc, copy(Afc)) ≥ 0
 @test dot(Afc, copy(Afc)) == dot(Afc, Afc)
+
+# non-finite factors with well-defined represented entries: norm, sum(abs2) and the
+# self-dot reduce the entries directly, since a QR of the factors would produce NaNs
+An = FactoredMatrix([Inf 1.0; Inf 2.0], [1.0 1.0]')
+@test norm(An) == Inf
+@test sum(abs2, An) == Inf
+@test dot(An, An) == Inf
+@test isnan(norm(FactoredMatrix(fill(NaN, 2, 1), ones(1, 1)')))
 Ac2 = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
 @test dot(Ac2, Ac2) isa ComplexF64
 @test dot(Ac2, Ac2) ≈ dot(Matrix(Ac2), Matrix(Ac2))

@@ -256,6 +256,16 @@ CachedFactoredMatrix(M::FactoredMatrix, p::Integer) = CachedFactoredMatrix(M, Wo
 Base.adjoint(C::CachedFactoredMatrix) = CachedFactoredMatrix(adjoint(C.M), C.ws)
 Base.transpose(C::CachedFactoredMatrix) = CachedFactoredMatrix(transpose(C.M), C.ws)
 
+# Scalar products forward to the wrapped matrix, keeping the bundled buffers when the
+# element type is preserved (a promoting scalar returns a plain FactoredMatrix, since
+# the buffers could no longer hold the intermediates).
+_rebundle(M::FactoredMatrix{T}, ws::Workspace{T}) where {T} = CachedFactoredMatrix(M, ws)
+_rebundle(M::FactoredMatrix, ::Workspace) = M
+Base.:(*)(a::Number, C::CachedFactoredMatrix) = _rebundle(a * C.M, C.ws)
+Base.:(*)(C::CachedFactoredMatrix, a::Number) = _rebundle(C.M * a, C.ws)
+Base.:(/)(C::CachedFactoredMatrix, a::Number) = _rebundle(C.M / a, C.ws)
+Base.:(\)(a::Number, C::CachedFactoredMatrix) = _rebundle(a \ C.M, C.ws)
+
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)
 Base.length(C::CachedFactoredMatrix) = length(C.M)

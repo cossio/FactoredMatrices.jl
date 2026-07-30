@@ -151,6 +151,10 @@ end
 
 #=== scalar multiples and low-rank sums ===#
 
+# Scalars are folded into one factor. For non-finite scalars the represented entries
+# can then differ from dense entrywise scaling — e.g. dividing by zero turns dormant
+# zero-valued factor terms into 0 * Inf = NaN — since a dense ±Inf/NaN pattern is not
+# generally representable as a rank-r product. This is inherent to the factored form.
 Base.:(*)(a::Number, L::FactoredMatrix) = _FactoredMatrix(a * L.u, L.v)
 Base.:(*)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, conj(a) * L.v) # u * v' * a = u * (conj(a) * v)'
 Base.:(/)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, L.v / conj(a))
@@ -228,6 +232,12 @@ Base.:(*)(A::AdjOrTransFM, x::AbstractVector) = rewrap(A) * x
 Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, B::AdjOrTransFM) = x * rewrap(B)
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, B::AdjOrTransFM) = x * rewrap(B)
 
+# UniformScaling products reduce to scalar multiplication.
+Base.:(*)(L::FactoredMatrix, J::UniformScaling) = L * J.λ
+Base.:(*)(J::UniformScaling, L::FactoredMatrix) = J.λ * L
+Base.:(*)(A::AdjOrTransFM, J::UniformScaling) = rewrap(A) * J.λ
+Base.:(*)(J::UniformScaling, A::AdjOrTransFM) = J.λ * rewrap(A)
+
 #=== least squares ===#
 
 """
@@ -269,9 +279,11 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
 end
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 
-# Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)), which keeps the exact
-# accumulation type and arithmetic of sum(abs2, Matrix(A)) — in particular it stays
-# exact for integer factors, unlike the floating-point QR route used by norm.
+# Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)), which keeps the
+# accumulation type of sum(abs2, Matrix(A)) and stays exact for integer factors as long
+# as no intermediate overflows its fixed-width type (under wrapping overflow the
+# reassociation overflows at different points than the dense entrywise reduction, as
+# any two accumulation orders do).
 Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v' * A.v)))
 # For floating-point factors the Gram form can catastrophically cancel (even to a
 # negative value) when factor columns nearly cancel; the QR-based norm is stable.
@@ -291,6 +303,11 @@ is what makes the [`isapprox`](@ref) comparison reliable.
 """
 function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     p == 2 || throw(ArgumentError("only the Frobenius norm (p = 2) is supported"))
+    if length(A) > 0 && !(all(isfinite, A.u) && all(isfinite, A.v))
+        # a QR of non-finite factors would contaminate R with NaNs even when the
+        # represented entries are well-defined; reduce the entries directly instead
+        return norm(A[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
+    end
     return norm(qr(A.u).R * qr(A.v).R')
 end
 

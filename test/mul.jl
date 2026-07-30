@@ -286,6 +286,15 @@ x6 = randn(6)
 y5 = zeros(5)
 @test mul!(y5, cfm', x6) ≈ Matrix(L)' * x6
 
+# scalar products forward, keeping the buffers when the element type is preserved
+@test 2 * cfm isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(2 * cfm) ≈ 2 * Matrix(L)
+@test Matrix(cfm * 3) ≈ 3 * Matrix(L)
+@test Matrix(cfm / 2) ≈ Matrix(L) / 2
+@test Matrix(2 \ cfm) ≈ Matrix(L) / 2
+@test (1 + im) * cfm isa FactoredMatrix # a promoting scalar drops the (real) buffers
+@test Matrix((1 + im) * cfm) ≈ (1 + im) * Matrix(L)
+
 # Boolean products accumulate into Int, like ordinary matrix products
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
 cfb = FactoredMatrices.CachedFactoredMatrix(Lb, 1)
