@@ -299,13 +299,18 @@ y5 = zeros(5)
 @test Matrix(I * cfm) ≈ Matrix(L)
 @test Matrix(cfm * (2I)) ≈ 2 * Matrix(L)
 
-# a workspace with a wider element type than the matrix can be bundled; its buffers
-# hold the (real) intermediates of the real matrix just fine
+# a workspace with a wider element type than the matrix can be bundled; it serves the
+# products whose intermediates are complex, while real products fall back to allocating
+# (a complex buffer would silently widen the arithmetic of a real product)
 wsc = FactoredMatrices.Workspace{ComplexF64}(2, 4)
 cfmc = FactoredMatrices.CachedFactoredMatrix(L, wsc)
 B4 = randn(5, 4)
 @test cfmc * B4 ≈ Matrix(L) * B4
 @test eltype(cfmc * B4) == Float64
+@test mul!(zeros(6, 4), L, B4; cache = wsc) ≈ Matrix(L) * B4
+B4c = randn(ComplexF64, 5, 4)
+@test cfmc * B4c ≈ Matrix(L) * B4c
+@test eltype(cfmc * B4c) == ComplexF64
 
 # Boolean products accumulate into Int, like ordinary matrix products
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')

@@ -243,13 +243,37 @@ Base.:(*)(J::UniformScaling, A::AdjOrTransFM) = J.λ * rewrap(A)
 """
     \\(L::FactoredMatrix, b)
 
-Solve `L * x = b` in the least-squares sense, factor by factor. When `L` is rank
-deficient this gives the pseudoinverse (minimum-norm least-squares) solution.
+Solve `L * x = b` in the least-squares sense, returning the minimum-norm least-squares
+(pseudoinverse) solution. Goes through `svd(L)`, which exploits the factors, so the
+dense matrix is never materialized. Rank deficiency — including factors with dependent
+columns, as routinely produced by the lazy `+` and `-` — is handled with the same
+relative singular-value cutoff as LinearAlgebra's SVD solve.
 """
-Base.:(\)(L::FactoredMatrix, b::AbstractVecOrMat) = L.v' \ (L.u \ b)
+Base.:(\)(L::FactoredMatrix, b::AbstractVecOrMat) = _lssolve(L, b)
 
 # Disambiguate against LinearAlgebra's real-Factorization/complex-RHS fallback.
-Base.:(\)(L::FactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = L.v' \ (L.u \ b)
+Base.:(\)(L::FactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = _lssolve(L, b)
+
+# Solving factor by factor (v' \ (u \ b)) would be the pseudoinverse only when both
+# factors have full column rank, which the lazy sums routinely break by concatenating
+# factor columns. The SVD of the represented matrix handles any rank profile, and its
+# U and V are only m × k and n × k, so the dense m × n matrix is still never formed.
+function _lssolve(L::FactoredMatrix, b::AbstractVecOrMat)
+    if size(L, 1) ≠ size(b, 1)
+        throw(DimensionMismatch("matrix has $(size(L, 1)) rows, right-hand side has $(size(b, 1))"))
+    end
+    F = svd(L)
+    # Zero singular values (a zero or rank-0 matrix) contribute nothing to the
+    # pseudoinverse; with k = 0 the products below yield the all-zero solution.
+    if isempty(F.S) || iszero(first(F.S))
+        k = 0
+    else
+        k = searchsortedlast(F.S, eps(eltype(F.S)) * first(F.S); rev = true)
+    end
+    y = view(F.U, :, 1:k)' * b
+    y ./= view(F.S, 1:k)
+    return view(F.Vt, 1:k, :)' * y
+end
 
 #=== reductions: dot, norm, trace ===#
 

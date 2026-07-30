@@ -14,6 +14,10 @@ rank of the factorization and `p` is the outer size of the other operand:
     `p = rank(M)`, and is fully allocation-free when `C` is a `FactoredMatrix` (one
     small intermediate is still allocated when `C` is dense).
 
+The buffers are used only for products whose intermediates have exactly the element
+type `T` (for example, a real matrix times complex operands needs a complex workspace);
+other products still work, falling back to allocating their intermediates.
+
 The same `Workspace` can be reused across calls (including adjoint/transpose variants,
 which have the same rank) as long as the operand sizes do not change. Create one
 `Workspace` per thread/task when multiplying concurrently against the same matrix.
@@ -34,23 +38,22 @@ const MaybeWorkspace = Union{Workspace, Nothing}
 # accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
 _prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T) * zero(S))
 
-# Whether a buffer with element type T can hold intermediates of element type S.
-_fits(::Type{T}, ::Type{S}) where {T, S} = promote_type(T, S) === T
-
 # Small intermediates, written into the workspace buffers when a cache is provided.
-# A buffer that cannot hold the intermediate's element type (e.g. a real buffer with a
-# complex operand, which would throw InexactError) falls back to allocating, so that a
+# The buffer is used only when its element type is exactly the intermediate's natural
+# element type: a narrower buffer could not hold the values (InexactError), while a
+# wider one (e.g. a complex buffer with all-real operands) would silently widen the
+# arithmetic of the downstream products. Any mismatch falls back to allocating, so a
 # cache never changes results. The branches are resolved at compile time.
 _lbuf(::Nothing, L::FactoredMatrix, B) = L.v' * B
 function _lbuf(ws::Workspace{T}, L::FactoredMatrix, B::AbstractMatrix) where {T}
-    if _fits(T, _prodtype(eltype(L), eltype(B)))
+    if T === _prodtype(eltype(L), eltype(B))
         return mul!(ws.left, L.v', B)
     else
         return L.v' * B
     end
 end
 function _lbuf(ws::Workspace{T}, L::FactoredMatrix, b::AbstractVector) where {T}
-    if _fits(T, _prodtype(eltype(L), eltype(b)))
+    if T === _prodtype(eltype(L), eltype(b))
         return mul!(view(ws.left, :, 1), L.v', b)
     else
         return L.v' * b
@@ -58,7 +61,7 @@ function _lbuf(ws::Workspace{T}, L::FactoredMatrix, b::AbstractVector) where {T}
 end
 _rbuf(::Nothing, A::AbstractMatrix, M::FactoredMatrix) = A * M.u
 function _rbuf(ws::Workspace{T}, A::AbstractMatrix, M::FactoredMatrix) where {T}
-    if _fits(T, _prodtype(eltype(A), eltype(M)))
+    if T === _prodtype(eltype(A), eltype(M))
         return mul!(ws.right, A, M.u)
     else
         return A * M.u
@@ -277,7 +280,7 @@ Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
 # The bundled buffers are used only when they fit the operation: the intermediate's
-# element type must not grow beyond the buffer's, and the buffer must have the shape the
+# element type must be exactly the buffer's, and the buffer must have the shape the
 # operation needs (it carries a single outer size `p`). Otherwise the product falls back
 # to allocating its intermediates, preserving ordinary multiplication semantics.
 _pdim(B::AbstractMatrix) = size(B, 2)
@@ -286,7 +289,7 @@ _pdim(B::AdjOrTransFM) = rank(parent(B))
 
 # The bundled buffers are handed to _lbuf/_rbuf only when their shape fits the
 # operation (the Workspace carries a single outer size `p`); whether their element type
-# can hold the intermediate is decided inside _lbuf/_rbuf, which fall back to allocating.
+# matches the intermediate is decided inside _lbuf/_rbuf, which fall back to allocating.
 function _left_cache(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix})
     return size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
 end

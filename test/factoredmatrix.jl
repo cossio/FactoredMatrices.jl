@@ -251,6 +251,24 @@ B = randn(12, 5)
 @test A \ b ≈ pinv(Matrix(A)) * b
 @test A \ B ≈ pinv(Matrix(A)) * B
 
+# left division: factors with dependent columns (as produced by the lazy sums) still
+# give the pseudoinverse solution
+A1 = FactoredMatrix(fill(1.0, 1, 1), fill(1.0, 1, 1)')
+B1 = FactoredMatrix(fill(2.0, 1, 1), fill(1.0, 1, 1)')
+@test (A1 + B1) \ [1.0] ≈ [1 / 3]
+u9 = randn(9, 2)
+v9 = randn(7, 2)
+S2 = FactoredMatrix(u9, v9') + FactoredMatrix(u9, v9') # storage rank 4, actual rank 2
+b9 = randn(9)
+B9 = randn(9, 3)
+@test S2 \ b9 ≈ pinv(Matrix(S2)) * b9
+@test S2 \ B9 ≈ pinv(Matrix(S2)) * B9
+
+# left division: zero and rank-0 matrices have the all-zero minimum-norm solution
+@test FactoredMatrix(zeros(3, 0), zeros(2, 0)') \ ones(3) == zeros(2)
+@test FactoredMatrix(zeros(3, 2), zeros(2, 2)') \ ones(3, 4) == zeros(2, 4)
+@test_throws DimensionMismatch A1 \ ones(2)
+
 # dot, sum(abs2), norm, tr
 for T in (Float64, ComplexF64)
     local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)')
