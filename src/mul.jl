@@ -17,6 +17,9 @@ rank of the factorization and `p` is the outer size of the other operand:
 The buffers are used only for products whose intermediates have exactly the element
 type `T` (for example, a real matrix times complex operands needs a complex workspace);
 other products still work, falling back to allocating their intermediates.
+`Workspace(L, p)` picks the element type of a same-element-type product of `L`, which
+can be wider than `eltype(L)` (e.g. `Int` buffers for `Bool` factors, whose products
+accumulate into `Int`).
 
 The same `Workspace` can be reused across calls (including adjoint/transpose variants,
 which have the same rank) as long as the operand sizes do not change. Create one
@@ -30,7 +33,10 @@ struct Workspace{T}
 end
 
 Workspace{T}(r::Integer, p::Integer) where {T} = Workspace{T}(Matrix{T}(undef, r, p), Matrix{T}(undef, p, r))
-Workspace(L::FactoredMatrix{T}, p::Integer) where {T} = Workspace{T}(rank(L), p)
+# The convenience constructor uses the element type of a same-element-type product of L,
+# not the factor element type: they differ when products widen (e.g. Bool factors
+# accumulate into Int), and a buffer of the factor type could then never be used.
+Workspace(L::FactoredMatrix{T}, p::Integer) where {T} = Workspace{_prodtype(T, T)}(rank(L), p)
 
 const MaybeWorkspace = Union{Workspace, Nothing}
 
@@ -278,11 +284,18 @@ Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.iszero(C::CachedFactoredMatrix) = iszero(C.M)
-# Comparisons ignore the bundled workspace: it is a scratch buffer, not content.
+# Comparisons ignore the bundled workspace: it is a scratch buffer, not content. The
+# mixed methods make a cached matrix compare equal to its uncached counterpart.
 Base.:(==)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M == B.M
+Base.:(==)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M == B
+Base.:(==)(A::FactoredMatrix, B::CachedFactoredMatrix) = A == B.M
 Base.isequal(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = isequal(A.M, B.M)
+Base.isequal(A::CachedFactoredMatrix, B::FactoredMatrix) = isequal(A.M, B)
+Base.isequal(A::FactoredMatrix, B::CachedFactoredMatrix) = isequal(A, B.M)
 Base.hash(C::CachedFactoredMatrix, h::UInt) = hash(C.M, h)
 Base.isapprox(A::CachedFactoredMatrix, B::CachedFactoredMatrix; kwargs...) = isapprox(A.M, B.M; kwargs...)
+Base.isapprox(A::CachedFactoredMatrix, B::FactoredMatrix; kwargs...) = isapprox(A.M, B; kwargs...)
+Base.isapprox(A::FactoredMatrix, B::CachedFactoredMatrix; kwargs...) = isapprox(A, B.M; kwargs...)
 LinearAlgebra.norm(C::CachedFactoredMatrix, p::Real = 2) = norm(C.M, p)
 LinearAlgebra.svd(C::CachedFactoredMatrix) = svd(C.M)
 LinearAlgebra.tr(C::CachedFactoredMatrix) = tr(C.M)

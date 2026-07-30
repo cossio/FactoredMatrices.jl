@@ -332,6 +332,12 @@ cfmB = FactoredMatrices.CachedFactoredMatrix(copy(L), 3)
 @test isequal(cfm, cfmB)
 @test hash(cfm) == hash(cfmB)
 @test cfm ≈ cfmB
+@test cfm == L
+@test L == cfm
+@test isequal(cfm, L)
+@test isequal(L, cfm)
+@test cfm ≈ L
+@test L ≈ cfm
 
 # factored destinations work with dense operands through the cache
 mfB = randn(5, 4)
@@ -354,8 +360,10 @@ B4c = randn(ComplexF64, 5, 4)
 @test cfmc * B4c ≈ Matrix(L) * B4c
 @test eltype(cfmc * B4c) == ComplexF64
 
-# Boolean products accumulate into Int, like ordinary matrix products
+# Boolean products accumulate into Int, like ordinary matrix products; the convenience
+# Workspace constructor therefore allocates Int buffers, so they are actually usable
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
+@test FactoredMatrices.Workspace(Lb, 1) isa FactoredMatrices.Workspace{Int}
 cfb = FactoredMatrices.CachedFactoredMatrix(Lb, 1)
 @test cfb * trues(1, 1) == fill(2, 1, 1)
 @test eltype(cfb * trues(1, 1)) == Int
