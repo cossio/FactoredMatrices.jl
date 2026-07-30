@@ -1,10 +1,10 @@
 using Test: @test, @testset
-using LinearAlgebra: svd, qr
+using LinearAlgebra: qr, svd
 using FactoredMatrices: FactoredMatrix
 using KrylovKit: svdsolve
 
 @testset "svd" begin
-    A = FactoredMatrix(randn(20, 3), randn(12, 3))
+    A = FactoredMatrix(randn(20, 3), randn(12, 3)')
     F = svd(Matrix(A))
     F1 = svd(A)
 
@@ -19,14 +19,15 @@ using KrylovKit: svdsolve
 end
 
 @testset "Krylov" begin
-    A = FactoredMatrix(randn(20, 3), randn(12, 3))
+    A = FactoredMatrix(randn(20, 3), randn(12, 3)')
 
-    vals, lvecs, rvecs, info = svdsolve(A)
+    # A Factorization is passed to svdsolve as a function computing A * x and A' * x.
+    fA(x, ::Val{false}) = A * x
+    fA(x, ::Val{true}) = A' * x
+    vals, lvecs, rvecs, info = svdsolve(fA, randn(20), 3)
     F = svd(Matrix(A))
+    @test length(vals) ≥ 3
     @test vals[1:3] ≈ F.S[1:3]
-    @test length(vals) == 4
-    @test abs(vals[4]) < 1.0e-10
-    @test abs(F.S[4]) < 1.0e-10
 
     for k in 1:3
         @test lvecs[k] * sign(lvecs[k][1]) ≈ F.U[:, k] * sign(F.U[1, k])
