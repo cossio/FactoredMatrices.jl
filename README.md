@@ -99,3 +99,11 @@ mul!(C, cfm, B) # no allocation
   [SciMLOperators.jl](https://github.com/SciML/SciMLOperators.jl): general lazy linear
   operator frameworks that can compose factored products, without the factored-form
   closed forms provided here.
+
+## Acknowledgments
+
+Thanks to [Tim Holy](https://github.com/timholy) for suggesting the
+`FactoredMatrix(U, V')` constructor, where the second factor is passed adjointed so that
+the call reads as the product it represents. `mul!` and various other features here are
+ported from his package,
+[HolyLab/FactoredMatrices.jl](https://github.com/HolyLab/FactoredMatrices.jl).
