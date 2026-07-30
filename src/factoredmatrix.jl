@@ -146,8 +146,7 @@ end
 # Default rtol with Base.rtoldefault's semantics (the larger of the per-eltype
 # defaults, e.g. √eps(Float32) for a Float32/Float64 comparison; 0 for integers),
 # so the default matches dense isapprox exactly.
-_rtoldefault(::Type{T}) where {T <: AbstractFloat} = √eps(T)
-_rtoldefault(::Type{<:Real}) = 0
+_rtoldefault(::Type{T}) where {T <: Real} = T <: AbstractFloat ? √eps(T) : 0
 _rtoldefault(A, B, atol) = iszero(atol) ? max(_rtoldefault(real(eltype(A))), _rtoldefault(real(eltype(B)))) : 0
 
 """
