@@ -277,6 +277,10 @@ LinearAlgebra.rank(C::CachedFactoredMatrix) = rank(C.M)
 Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
+LinearAlgebra.norm(C::CachedFactoredMatrix, p::Real = 2) = norm(C.M, p)
+Base.:(\)(C::CachedFactoredMatrix, b::AbstractVecOrMat) = C.M \ b
+# Disambiguate against LinearAlgebra's real-Factorization/complex-RHS fallback.
+Base.:(\)(C::CachedFactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = C.M \ b
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
@@ -367,6 +371,6 @@ function Base.:(*)(A::CachedFactoredMatrix{T}, x::AbstractVector) where {T}
     return _mul!(Vector{S}(undef, size(A, 1)), A.M, x, true, false, _left_cache(A, x))
 end
 function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
-    S = _prodtype(T, eltype(A))
+    S = _prodtype(eltype(A), T)
     return _mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A, B.M, true, false, _right_cache(B, A))
 end

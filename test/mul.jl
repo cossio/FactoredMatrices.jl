@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws
-using LinearAlgebra: Adjoint, I, Transpose, mul!, rank
+using LinearAlgebra: Adjoint, I, Transpose, mul!, norm, pinv, rank
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 myrand(::Type{T}, dims::Integer...) where {T <: Real} = rand(T, dims...)
@@ -299,6 +299,11 @@ y5 = zeros(5)
 @test Matrix(cfm * I) ≈ Matrix(L)
 @test Matrix(I * cfm) ≈ Matrix(L)
 @test Matrix(cfm * (2I)) ≈ 2 * Matrix(L)
+
+# norm and least-squares solves forward to the wrapped factorization
+@test norm(cfm) ≈ norm(Matrix(L))
+@test cfm \ x6 ≈ pinv(Matrix(L)) * x6
+@test cfm \ ((1 + im) * x6) ≈ pinv(Matrix(L)) * ((1 + im) * x6)
 
 # a workspace with a wider element type than the matrix can be bundled; it serves the
 # products whose intermediates are complex, while real products fall back to allocating
