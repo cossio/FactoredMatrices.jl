@@ -361,6 +361,14 @@ An = FactoredMatrix([Inf 1.0; Inf 2.0], [1.0 1.0]')
 @test sum(abs2, An) == Inf
 @test dot(An, An) == Inf
 @test isnan(norm(FactoredMatrix(fill(NaN, 2, 1), ones(1, 1)')))
+# dots with non-finite factors fall back to entrywise evaluation, so dormant zero
+# factor entries cannot manufacture 0 * Inf = NaN
+Anf = FactoredMatrix([Inf 0.0], [1.0 0.0]') # represents [Inf]
+Bnf = FactoredMatrix([0.0 1.0], [0.0 1.0]') # represents [1.0]
+@test dot(Anf, Bnf) == dot(Matrix(Anf), Matrix(Bnf)) == Inf
+@test dot(Bnf, Anf) == Inf
+@test dot(Anf, Matrix(Bnf)) == Inf
+@test dot(Matrix(Bnf), Anf) == Inf
 Ac2 = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
 @test dot(Ac2, Ac2) isa ComplexF64
 @test dot(Ac2, Ac2) ≈ dot(Matrix(Ac2), Matrix(Ac2))

@@ -85,6 +85,11 @@ LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 # Factorization types, FactoredMatrix exposes no indexing API.
 _entry(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
+# Non-finite factor entries can corrupt reassociated closed forms (0 * Inf = NaN from
+# dormant factor pairs, NaN contamination in QR) even when the represented entries are
+# well-defined; norm and dot fall back to entrywise evaluation in that case.
+_allfinite(L::FactoredMatrix) = all(isfinite, L.u) && all(isfinite, L.v)
+
 # Fast path: a zero factor with a finite cofactor gives an exactly zero product
 # (0 * Inf = NaN). Nonzero factors can still cancel (e.g. A - A), so otherwise check
 # the represented entries, short-circuiting at the first nonzero one.
@@ -292,11 +297,11 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
         # same represented matrix, same arithmetic: use the stable nonnegative self-dot
         return convert(T, sum(abs2, A))
-    elseif eltype(A) === eltype(B)
+    elseif eltype(A) === eltype(B) && _allfinite(A) && _allfinite(B)
         return sum((A.u' * B.u) .* conj.(A.v' * B.v))
     end
-    # Mixed element types: promoting the factors would change the represented entries
-    # (each operand rounds in its own precision), so evaluate the entrywise sum.
+    # Entrywise fallback: mixed element types (promoting the factors would change the
+    # represented entries) or non-finite factors (the Gram form could manufacture NaN).
     return sum(dot(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
@@ -305,7 +310,7 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
     end
     if length(A) == 0
         return zero(_prodtype(eltype(A), eltype(B))) # empty sum; avoid 0 * Inf garbage
-    elseif eltype(A) === eltype(B)
+    elseif eltype(A) === eltype(B) && _allfinite(A) && all(isfinite, B)
         return tr(A.u' * (B * A.v))
     end
     return sum(dot(_entry(A, i, j), B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
@@ -332,9 +337,7 @@ nearly-equal matrices), which is what makes [`isapprox`](@ref) reliable.
 """
 function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     p == 2 || throw(ArgumentError("only the Frobenius norm (p = 2) is supported"))
-    if length(A) > 0 && !(all(isfinite, A.u) && all(isfinite, A.v))
-        # a QR of non-finite factors would contaminate R with NaNs even when the
-        # represented entries are well-defined; reduce the entries directly instead
+    if length(A) > 0 && !_allfinite(A)
         return norm(_entry(A, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
     end
     return norm(qr(A.u).R * qr(A.v).R')
