@@ -11,6 +11,10 @@ The second factor must be passed adjointed (or transposed), so that the call rea
 the product it represents: `FactoredMatrix(u, v')` is the matrix `u * v'`. Passing two
 plain matrices throws an `ArgumentError`. Vector arguments are treated as one-column
 matrices, so `FactoredMatrix(x, y')` is the outer product of the vectors `x` and `y`.
+Structured matrices whose adjoint is computed eagerly (`Diagonal`, `Hermitian`,
+triangular, ...) are accepted directly as the second argument and taken verbatim as the
+right multiplicand, since for them `X'` is not an `Adjoint` wrapper: `FactoredMatrix(u, X)`
+represents `u * X`, which is what the call reads as whether or not the caller wrote `X'`.
 If the factors have different element types, both are converted to their promoted
 element type.
 
@@ -44,6 +48,18 @@ _colform(x::AbstractVector) = reshape(x, :, 1)
 
 FactoredMatrix(u::AbstractVecOrMat, vt::Adjoint{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), _colform(parent(vt)))
 FactoredMatrix(u::AbstractVecOrMat, vt::Transpose{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), conj(_colform(parent(vt))))
+
+# Structured matrix types whose adjoint is computed eagerly instead of returning an
+# `Adjoint` wrapper (adjoint(::Diagonal) is a Diagonal, adjoint(::UpperTriangular) a
+# LowerTriangular, ...). Receiving the bare type is consistent with the caller having
+# written `FactoredMatrix(u, X')` as documented, so the second argument is taken
+# verbatim as the right multiplicand: the represented matrix is `u * X`.
+const EagerAdjointFactor = Union{
+    Bidiagonal, Diagonal, Hermitian, LowerTriangular, SymTridiagonal, Symmetric,
+    Tridiagonal, UnitLowerTriangular, UnitUpperTriangular, UpperTriangular,
+}
+FactoredMatrix(u::AbstractVecOrMat, X::EagerAdjointFactor) = _FactoredMatrix(_colform(u), _colform(X'))
+
 function FactoredMatrix(u::AbstractVecOrMat, v::AbstractVecOrMat)
     throw(
         ArgumentError(
@@ -111,6 +127,15 @@ compare unequal elementwise, like dense arrays containing `NaN`.
 function Base.:(==)(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
     return all(A[i, j] == B[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
+end
+
+# `isequal` compares the represented entries with dense-array semantics (in particular,
+# NaN entries are equal to themselves), so factorizations behave as hashed-collection
+# keys: `isequal(A, A)` must hold even for represented NaN entries, which `==`
+# deliberately rejects.
+function Base.isequal(A::FactoredMatrix, B::FactoredMatrix)
+    size(A) == size(B) || return false
+    return all(isequal(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 
 # Entries that are `==` must hash equally; collapse ±0.0, which hash differently.

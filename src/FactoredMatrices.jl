@@ -11,7 +11,9 @@ or bundle it with the matrix in a [`FactoredMatrices.CachedFactoredMatrix`](@ref
 module FactoredMatrices
 
 import LinearAlgebra
-using LinearAlgebra: Adjoint, Factorization, SVD, Transpose, UniformScaling, dot, mul!, norm, qr, rank, svd, tr
+using LinearAlgebra: Adjoint, Bidiagonal, Diagonal, Factorization, Hermitian, LowerTriangular, SVD,
+    SymTridiagonal, Symmetric, Transpose, Tridiagonal, UniformScaling, UnitLowerTriangular,
+    UnitUpperTriangular, UpperTriangular, dot, mul!, norm, qr, rank, svd, tr
 
 export FactoredMatrix
 public Workspace, CachedFactoredMatrix

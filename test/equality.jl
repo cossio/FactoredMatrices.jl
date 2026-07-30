@@ -43,6 +43,16 @@ Zm = FactoredMatrix(fill(-0.0, 2, 1), ones(2, 1)')
 @test Zp == Zm
 @test hash(Zp) == hash(Zm)
 
+# isequal compares the represented entries with dense-array semantics: NaN entries are
+# equal to themselves, so factorizations with NaN entries work as Dict keys. (No ±0.0
+# test: whether an entry comes out as -0.0 depends on the dot accumulation order.)
+@test isequal(N, N)
+@test isequal(Z, copy(Z))
+@test hash(Z) == hash(copy(Z))
+@test Dict(Z => 1)[copy(Z)] == 1
+@test isequal(A, FactoredMatrix(copy(u), copy(v)'))
+@test !isequal(A, FactoredMatrix(u[1:9, :], v')) # size mismatch
+
 # empty matrices hash and compare without error
 E = FactoredMatrix(zeros(0, 2), zeros(4, 2)')
 @test E == FactoredMatrix(zeros(0, 2), randn(4, 2)')

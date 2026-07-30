@@ -278,6 +278,11 @@ Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.iszero(C::CachedFactoredMatrix) = iszero(C.M)
+# Comparisons ignore the bundled workspace: it is a scratch buffer, not content.
+Base.:(==)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M == B.M
+Base.isequal(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = isequal(A.M, B.M)
+Base.hash(C::CachedFactoredMatrix, h::UInt) = hash(C.M, h)
+Base.isapprox(A::CachedFactoredMatrix, B::CachedFactoredMatrix; kwargs...) = isapprox(A.M, B.M; kwargs...)
 LinearAlgebra.norm(C::CachedFactoredMatrix, p::Real = 2) = norm(C.M, p)
 LinearAlgebra.svd(C::CachedFactoredMatrix) = svd(C.M)
 LinearAlgebra.tr(C::CachedFactoredMatrix) = tr(C.M)

@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws, @inferred
-using LinearAlgebra: Adjoint, Diagonal, Factorization, I, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
+using LinearAlgebra: Adjoint, Diagonal, Factorization, Hermitian, I, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
 using FactoredMatrices: FactoredMatrix
 
 # the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
@@ -22,6 +22,19 @@ end
 
 # u and v must have the same number of columns
 @test_throws ArgumentError FactoredMatrix(randn(5, 2), randn(4, 3)')
+
+# structured second factors whose adjoint is eager (not an Adjoint wrapper) are
+# accepted and taken verbatim as the right multiplicand
+u52 = randn(5, 2)
+uc52 = randn(ComplexF64, 5, 2)
+d2 = Diagonal([1.0, 2.0])
+@test Matrix(FactoredMatrix(u52, d2')) ≈ u52 * Matrix(d2)'
+dc2 = Diagonal([1.0 + 2im, 3.0 - im])
+@test Matrix(FactoredMatrix(uc52, dc2')) ≈ uc52 * Matrix(dc2)'
+Ut2 = UpperTriangular(randn(2, 2))
+@test Matrix(FactoredMatrix(u52, Ut2')) ≈ u52 * Matrix(Ut2)'
+Hc2 = Hermitian(randn(ComplexF64, 2, 2))
+@test Matrix(FactoredMatrix(uc52, Hc2')) ≈ uc52 * Matrix(Hc2)
 
 # vector arguments are treated as one-column matrices
 x = randn(5)

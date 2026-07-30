@@ -326,6 +326,13 @@ Lsq = FactoredMatrix(randn(5, 2), randn(5, 2)')
 @test !iszero(cfm)
 @test iszero(FactoredMatrices.CachedFactoredMatrix(FactoredMatrix(zeros(3, 1), zeros(2, 1)'), 1))
 
+# comparisons forward to the wrapped factorization, ignoring the workspace
+cfmB = FactoredMatrices.CachedFactoredMatrix(copy(L), 3)
+@test cfm == cfmB
+@test isequal(cfm, cfmB)
+@test hash(cfm) == hash(cfmB)
+@test cfm ≈ cfmB
+
 # factored destinations work with dense operands through the cache
 mfB = randn(5, 4)
 CfL = FactoredMatrix(zeros(6, 2), zeros(4, 2)')
