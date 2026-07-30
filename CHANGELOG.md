@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
-- Three- and five-argument `mul!` methods for all combinations of `FactoredMatrix`, its `Adjoint`/`Transpose` wrappers, dense matrices and vectors — including `mul!` into a pre-allocated `FactoredMatrix` output. This makes `FactoredMatrix` usable with iterative solvers that require `mul!`.
+- Three- and five-argument `mul!` methods for all combinations of `FactoredMatrix`, dense matrices and vectors — including `mul!` into a pre-allocated `FactoredMatrix` output. This makes `FactoredMatrix` usable with iterative solvers that require `mul!`.
 - `FactoredMatrices.Workspace`: pre-allocated buffers passed to `mul!` via the `cache` keyword, making repeated products allocation-free.
 - `FactoredMatrices.CachedFactoredMatrix`: bundles a `FactoredMatrix` with its `Workspace` so `*` and `mul!` use the buffers automatically.
 - Closed-form `dot` (Frobenius inner product) and `tr` from small Gram matrices, and `norm`/`sum(abs2, A)` via thin QR of the factors (stable even when the represented matrix is much smaller than its factors), all without materializing the dense matrix.

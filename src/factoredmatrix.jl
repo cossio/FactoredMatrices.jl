@@ -50,7 +50,7 @@ FactoredMatrix(u::AbstractVecOrMat, vt::Transpose{<:Any, <:AbstractVecOrMat}) = 
 # wrapper), so the wrapper convention cannot apply; the second argument is taken
 # verbatim as the right multiplicand: the represented matrix is `u * X`.
 const EagerAdjointFactor = Union{
-    Bidiagonal, Diagonal, Hermitian, LowerTriangular, SymTridiagonal, Symmetric,
+    Bidiagonal, Diagonal, Hermitian, LowerTriangular, SymTridiagonal, Symmetric{<:Real},
     Tridiagonal, UnitLowerTriangular, UnitUpperTriangular, UpperTriangular,
 }
 FactoredMatrix(u::AbstractVecOrMat, X::EagerAdjointFactor) = _FactoredMatrix(_colform(u), _colform(X'))
@@ -143,7 +143,12 @@ function Base.hash(A::FactoredMatrix, h::UInt)
     return h
 end
 
-_rtoldefault(A, B, atol) = iszero(atol) ? √eps(float(promote_type(real(eltype(A)), real(eltype(B))))) : 0
+# Default rtol with Base.rtoldefault's semantics (the larger of the per-eltype
+# defaults, e.g. √eps(Float32) for a Float32/Float64 comparison; 0 for integers),
+# so the default matches dense isapprox exactly.
+_rtoldefault(::Type{T}) where {T <: AbstractFloat} = √eps(T)
+_rtoldefault(::Type{<:Real}) = 0
+_rtoldefault(A, B, atol) = iszero(atol) ? max(_rtoldefault(real(eltype(A))), _rtoldefault(real(eltype(B)))) : 0
 
 """
     isapprox(A::FactoredMatrix, B::FactoredMatrix; atol = 0, rtol, nans = false)
@@ -209,67 +214,29 @@ function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
 end
 
 function Base.:(*)(L::FactoredMatrix, A::AbstractMatrix)
-    w = A' * L.v # rank-sized; exactly zero when the contracted dimension is empty
+    w = A' * L.v
     return _FactoredMatrix(size(L.v, 1) == 0 ? zero(L.u) : copy(L.u), w)
 end
 function Base.:(*)(A::AbstractMatrix, L::FactoredMatrix)
-    u = A * L.u # rank-sized; exactly zero when the contracted dimension is empty
+    u = A * L.u
     return _FactoredMatrix(u, size(L.u, 1) == 0 ? zero(L.v) : copy(L.v))
 end
 
 function Base.:(*)(L::FactoredMatrix, x::AbstractVector)
-    t = L.v' * x # rank-sized; exactly zero when the contracted dimension is empty
+    t = L.v' * x
     return size(L.v, 1) == 0 ? zeros(_prodtype(eltype(L), eltype(x)), size(L.u, 1)) : L.u * t
 end
 function Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::FactoredMatrix)
-    t = x * L.u # rank-sized; exactly zero when the contracted dimension is empty
+    t = x * L.u
     return size(L.u, 1) == 0 ? adjoint(zeros(_prodtype(eltype(x), eltype(L)), size(L.v, 1))) : t * L.v'
 end
 # xᵀ * L = (Lᵀ * x)ᵀ keeps the row-vector shape of the dense product (without this the
 # generic matrix method above would return a 1 × n FactoredMatrix instead).
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, L::FactoredMatrix) = transpose(transpose(L) * parent(x))
 
-# Explicit Adjoint/Transpose wrappers around a FactoredMatrix are re-wrapped into plain
-# FactoredMatrixes. NOTE: re-wrapping a Transpose of a complex FactoredMatrix conj-copies
-# the factors; in hot loops prefer calling transpose(L) once outside the loop.
-const AdjOrTransFM = Union{Adjoint{<:Any, <:FactoredMatrix}, Transpose{<:Any, <:FactoredMatrix}}
-
-rewrap(L::FactoredMatrix) = L
-rewrap(L::Adjoint{<:Any, <:FactoredMatrix}) = adjoint(parent(L))
-rewrap(L::Transpose{<:Any, <:FactoredMatrix}) = transpose(parent(L))
-
-Base.Matrix(L::AdjOrTransFM) = Matrix(rewrap(L))
-Base.:(*)(A::FactoredMatrix, B::AdjOrTransFM) = A * rewrap(B)
-Base.:(*)(A::AdjOrTransFM, B::FactoredMatrix) = rewrap(A) * B
-Base.:(*)(A::AdjOrTransFM, B::AdjOrTransFM) = rewrap(A) * rewrap(B)
-Base.:(*)(A::AdjOrTransFM, B::AbstractMatrix) = rewrap(A) * B
-Base.:(*)(A::AbstractMatrix, B::AdjOrTransFM) = A * rewrap(B)
-Base.:(*)(A::AdjOrTransFM, x::AbstractVector) = rewrap(A) * x
-Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, B::AdjOrTransFM) = x * rewrap(B)
-Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, B::AdjOrTransFM) = x * rewrap(B)
-
 # UniformScaling products reduce to scalar multiplication.
 Base.:(*)(L::FactoredMatrix, J::UniformScaling) = L * J.λ
 Base.:(*)(J::UniformScaling, L::FactoredMatrix) = J.λ * L
-Base.:(*)(A::AdjOrTransFM, J::UniformScaling) = rewrap(A) * J.λ
-Base.:(*)(J::UniformScaling, A::AdjOrTransFM) = J.λ * rewrap(A)
-
-# Scalar operations on the wrappers stay factored too; without these the AbstractArray
-# fallbacks would materialize the dense matrix.
-Base.:(*)(a::Number, A::AdjOrTransFM) = a * rewrap(A)
-Base.:(*)(A::AdjOrTransFM, a::Number) = rewrap(A) * a
-Base.:(/)(A::AdjOrTransFM, a::Number) = rewrap(A) / a
-Base.:(\)(a::Number, A::AdjOrTransFM) = a \ rewrap(A)
-Base.:(-)(A::AdjOrTransFM) = -rewrap(A)
-
-# Lazy sums and differences of the wrappers stay factored as well; the AbstractArray
-# fallbacks error on the wrappers (no linear indexing) or would materialize.
-Base.:(+)(A::AdjOrTransFM, B::AdjOrTransFM) = rewrap(A) + rewrap(B)
-Base.:(+)(A::AdjOrTransFM, B::FactoredMatrix) = rewrap(A) + B
-Base.:(+)(A::FactoredMatrix, B::AdjOrTransFM) = A + rewrap(B)
-Base.:(-)(A::AdjOrTransFM, B::AdjOrTransFM) = rewrap(A) - rewrap(B)
-Base.:(-)(A::AdjOrTransFM, B::FactoredMatrix) = rewrap(A) - B
-Base.:(-)(A::FactoredMatrix, B::AdjOrTransFM) = A - rewrap(B)
 
 #=== least squares ===#
 
@@ -293,13 +260,10 @@ function _lssolve(L::FactoredMatrix, b::AbstractVecOrMat)
         throw(DimensionMismatch("matrix has $(size(L, 1)) rows, right-hand side has $(size(b, 1))"))
     end
     F = svd(L)
-    # Singular values below pinv's cutoff (in particular exact zeros) contribute
-    # nothing; with k = 0 the products below yield the all-zero solution.
-    if isempty(F.S) || iszero(first(F.S))
-        k = 0
-    else
-        k = searchsortedlast(F.S, eps(eltype(F.S)) * minimum(size(L)) * first(F.S); rev = true)
-    end
+    # Singular values at or below pinv's cutoff contribute nothing; with k = 0 (e.g.
+    # empty or all-zero S, where tol == 0) the products below yield the zero solution.
+    tol = eps(eltype(F.S)) * minimum(size(L)) * (isempty(F.S) ? zero(eltype(F.S)) : first(F.S))
+    k = count(>(tol), F.S)
     y = view(F.U, :, 1:k)' * b
     y ./= view(F.S, 1:k)
     return view(F.Vt, 1:k, :)' * y
@@ -315,11 +279,9 @@ Frobenius inner product `sum(conj(A[i, j]) * B[i, j])`, evaluated in closed form
 materializing the dense matrices. Mixed element types are evaluated entrywise
 (`O(m * n * rank)`), preserving each operand's represented-entry arithmetic.
 
-Like any reassociated closed form, roundoff accumulates at the scale of the factor
-products rather than of the represented entries, so relative accuracy degrades for
-strongly cancelling factorizations. Self-inner products and `norm` avoid this through
-a QR-stable evaluation; there is no equally cheap stable form for general inner
-products.
+The closed form reassociates the sum, so relative accuracy degrades for strongly
+cancelling factorizations; self-inner products take the QR-stable `sum(abs2, A)` path
+instead.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     if size(A) ≠ size(B)

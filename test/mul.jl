@@ -2,28 +2,24 @@ using Test: @testset, @test, @test_throws
 using LinearAlgebra: Adjoint, I, Transpose, mul!, norm, rank
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
-myrand(::Type{T}, dims::Integer...) where {T <: Real} = rand(T, dims...)
-myrand(::Type{Complex{T}}, dims::Integer...) where {T <: Real} = rand(T, dims...) + im * rand(T, dims...)
-
 # Wrappers so @allocated measures the call in a compiled context (and the keyword
 # argument does not allocate a fresh NamedTuple at global scope).
 alloc_mul(C, A, B, ws) = @allocated mul!(C, A, B; cache = ws)
 alloc_mul5(C, A, B, α, β, ws) = @allocated mul!(C, A, B, α, β; cache = ws)
 alloc_mul_nocache(C, A, B) = @allocated mul!(C, A, B)
-alloc_mul_cached(C, A, B) = @allocated mul!(C, A, B)
 
 for T in (Float32, Float64, ComplexF32, ComplexF64)
     # L: 15 × 10 with rank 3
-    u = myrand(T, 15, 3)
-    v = myrand(T, 10, 3)
+    u = rand(T, 15, 3)
+    v = rand(T, 10, 3)
     L = FactoredMatrix(u, v')
     M = Matrix(L)
     α, β = T(2), T(3)
 
-    B = myrand(T, 10, 5) # for L * B
-    D = myrand(T, 15, 5) # for L' * D
-    E = myrand(T, 5, 15) # for E * L
-    b = myrand(T, 10, 1)[:, 1]
+    B = rand(T, 10, 5) # for L * B
+    D = rand(T, 15, 5) # for L' * D
+    E = rand(T, 5, 15) # for E * L
+    b = rand(T, 10)
 
     # 3-arg mul! into dense outputs
     C = zeros(T, 15, 5)
@@ -35,46 +31,46 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test mul!(C, E, L) ≈ E * M
     c = zeros(T, 15)
     @test mul!(c, L, b) ≈ M * b
-    d = myrand(T, 15, 1)[:, 1]
+    d = rand(T, 15)
     c = zeros(T, 10)
     @test mul!(c, L', d) ≈ M' * d
-    @test mul!(c, Transpose(L), conj(d)) ≈ transpose(M) * conj(d)
+    @test mul!(c, transpose(L), conj(d)) ≈ transpose(M) * conj(d)
 
     # 5-arg mul! into dense outputs
-    C0 = myrand(T, 15, 5)
+    C0 = rand(T, 15, 5)
     C = copy(C0)
     @test mul!(C, L, B, α, β) ≈ α * (M * B) + β * C0
-    C0 = myrand(T, 10, 5)
+    C0 = rand(T, 10, 5)
     C = copy(C0)
     @test mul!(C, L', D, α, β) ≈ α * (M' * D) + β * C0
     C = copy(C0)
-    @test mul!(C, Transpose(L), D, α, β) ≈ α * (transpose(M) * D) + β * C0
-    C0 = myrand(T, 5, 10)
+    @test mul!(C, transpose(L), D, α, β) ≈ α * (transpose(M) * D) + β * C0
+    C0 = rand(T, 5, 10)
     C = copy(C0)
     @test mul!(C, E, L, α, β) ≈ α * (E * M) + β * C0
-    C0 = myrand(T, 5, 15)
+    C0 = rand(T, 5, 15)
     C = copy(C0)
-    G = myrand(T, 5, 10)
-    @test mul!(C, G, Adjoint(L), α, β) ≈ α * (G * M') + β * C0
-    c0 = myrand(T, 15, 1)[:, 1]
+    G = rand(T, 5, 10)
+    @test mul!(C, G, L', α, β) ≈ α * (G * M') + β * C0
+    c0 = rand(T, 15)
     c = copy(c0)
     @test mul!(c, L, b, α, β) ≈ α * (M * b) + β * c0
 
     # FM × FM into dense output, both association branches
-    R = FactoredMatrix(myrand(T, 10, 2), myrand(T, 8, 2)') # rank(L) > rank(R)
-    S = FactoredMatrix(myrand(T, 10, 4), myrand(T, 8, 4)') # rank(L) < rank(S)
+    R = FactoredMatrix(rand(T, 10, 2), rand(T, 8, 2)') # rank(L) > rank(R)
+    S = FactoredMatrix(rand(T, 10, 4), rand(T, 8, 4)') # rank(L) < rank(S)
     for X in (R, S)
         local C = zeros(T, 15, 8)
         @test mul!(C, L, X) ≈ M * Matrix(X)
-        C0 = myrand(T, 15, 8)
+        C0 = rand(T, 15, 8)
         local Cm = copy(C0)
         @test mul!(Cm, L, X, α, β) ≈ α * (M * Matrix(X)) + β * C0
     end
-    @test mul!(zeros(T, 8, 15), R', Adjoint(L)) ≈ Matrix(R)' * M'
+    @test mul!(zeros(T, 8, 15), R', L') ≈ Matrix(R)' * M'
     # wide low-rank right operand hits the other association branch
-    W = FactoredMatrix(myrand(T, 10, 1), myrand(T, 20, 1)')
+    W = FactoredMatrix(rand(T, 10, 1), rand(T, 20, 1)')
     @test mul!(zeros(T, 15, 20), L, W) ≈ M * Matrix(W)
-    C0 = myrand(T, 15, 20)
+    C0 = rand(T, 15, 20)
     Cw = copy(C0)
     @test mul!(Cw, L, W, α, β) ≈ α * (M * Matrix(W)) + β * C0
 
@@ -84,7 +80,7 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     Cf = FactoredMatrix(zeros(T, 5, 3), zeros(T, 10, 3)')
     @test Matrix(mul!(Cf, E, L)) ≈ E * M
     Cf = FactoredMatrix(zeros(T, 10, 3), zeros(T, 5, 3)')
-    @test Matrix(mul!(Cf, Adjoint(L), D)) ≈ M' * D
+    @test Matrix(mul!(Cf, L', D)) ≈ M' * D
     # FM × FM → FM, landing on either factor depending on rank(C)
     Cf = FactoredMatrix(zeros(T, 15, 3), zeros(T, 8, 3)') # rank(C) == rank(L)
     @test Matrix(mul!(Cf, L, R)) ≈ M * Matrix(R)
@@ -92,18 +88,9 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test Matrix(mul!(Cf, L, R)) ≈ M * Matrix(R)
     Cf = FactoredMatrix(zeros(T, 15, 5), zeros(T, 8, 5)')
     @test_throws DimensionMismatch mul!(Cf, L, R)
-    # dense × dense → FM repacks the factors
-    A2 = myrand(T, 15, 3)
-    B2 = myrand(T, 3, 8)
-    Cf = FactoredMatrix(zeros(T, 15, 3), zeros(T, 8, 3)')
-    @test Matrix(mul!(Cf, A2, B2)) ≈ A2 * B2
     # mismatched storage ranks must throw instead of broadcast-expanding the factors
     Cf2 = FactoredMatrix(zeros(T, 15, 2), zeros(T, 8, 2)')
-    @test_throws DimensionMismatch mul!(Cf2, myrand(T, 15, 1), myrand(T, 1, 8))
-    @test_throws DimensionMismatch mul!(Cf2, FactoredMatrix(myrand(T, 15, 1), myrand(T, 10, 1)'), myrand(T, 10, 8))
-    # matching u factor but mismatched v factor
-    Cf3 = FactoredMatrix(zeros(T, 15, 2), zeros(T, 9, 2)')
-    @test_throws DimensionMismatch mul!(Cf3, myrand(T, 15, 2), myrand(T, 2, 8))
+    @test_throws DimensionMismatch mul!(Cf2, FactoredMatrix(rand(T, 15, 1), rand(T, 10, 1)'), rand(T, 10, 8))
 
     # Workspace: correctness and zero allocations
     ws = FactoredMatrices.Workspace(L, 5)
@@ -115,7 +102,7 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test mul!(C, E, L; cache = ws) ≈ E * M
     c = zeros(T, 15)
     @test mul!(c, L, b; cache = ws) ≈ M * b
-    C0 = myrand(T, 15, 5)
+    C0 = rand(T, 15, 5)
     C = copy(C0)
     @test mul!(C, L, B, α, β; cache = ws) ≈ α * (M * B) + β * C0
 
@@ -161,26 +148,26 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test sprint(show, MIME("text/plain"), cfm) == sprint(show, cfm)
     @test cfm * B ≈ M * B
     @test cfm * b ≈ M * b
-    A5 = myrand(T, 5, 15)
+    A5 = rand(T, 5, 15)
     @test A5 * cfm ≈ A5 * M
     C = zeros(T, 15, 5)
     @test mul!(C, cfm, B) ≈ M * B
-    C0 = myrand(T, 15, 5)
+    C0 = rand(T, 15, 5)
     C = copy(C0)
     @test mul!(C, cfm, B, α, β) ≈ α * (M * B) + β * C0
     C = zeros(T, 5, 10)
     @test mul!(C, A5, cfm) ≈ A5 * M
-    C0 = myrand(T, 5, 10)
+    C0 = rand(T, 5, 10)
     C = copy(C0)
     @test mul!(C, A5, cfm, α, β) ≈ α * (A5 * M) + β * C0
     c = zeros(T, 15)
     @test mul!(c, cfm, b) ≈ M * b
-    c0 = myrand(T, 15, 1)[:, 1]
+    c0 = rand(T, 15)
     c = copy(c0)
     @test mul!(c, cfm, b, α, β) ≈ α * (M * b) + β * c0
     C = zeros(T, 15, 5)
-    alloc_mul_cached(C, cfm, B)
-    @test alloc_mul_cached(C, cfm, B) == 0
+    alloc_mul_nocache(C, cfm, B)
+    @test alloc_mul_nocache(C, cfm, B) == 0
 end
 
 # cached products with a promoting operand fall back to allocating intermediates
@@ -214,15 +201,14 @@ W = FactoredMatrix(randn(7, 2), randn(5, 2)') # L * W' is 6 × 7
 @test Matrix(cfm * R) ≈ Matrix(L) * Matrix(R)
 @test G * cfm isa FactoredMatrix
 @test Matrix(G * cfm) ≈ Matrix(G) * Matrix(L)
-@test Matrix(cfm * Adjoint(W)) ≈ Matrix(L) * Matrix(W)'
-@test Matrix(Adjoint(G') * cfm) ≈ Matrix(G) * Matrix(L)
+@test Matrix(cfm * W') ≈ Matrix(L) * Matrix(W)'
 @test Matrix(cfm * FactoredMatrices.CachedFactoredMatrix(R, 2)) ≈ Matrix(L) * Matrix(R)
 
 # cached mul! with factored operands; the bundled buffer is used only when it fits
 cfmR = FactoredMatrices.CachedFactoredMatrix(L, rank(R)) # left buffer fits L × R products
 for A in (cfmR, cfm) # fitting and non-fitting buffers give the same result
     local C = zeros(6, 7)
-    @test mul!(C, A, Adjoint(W)) ≈ Matrix(L) * Matrix(W)'
+    @test mul!(C, A, W') ≈ Matrix(L) * Matrix(W)'
     @test mul!(C, A, R) ≈ Matrix(L) * Matrix(R)
     @test mul!(C, A, R, 2.0, 1.0) ≈ 3 * Matrix(L) * Matrix(R) # uses C = L * R from above
     local Cf = FactoredMatrix(zeros(6, 3), zeros(7, 3)')
@@ -230,7 +216,6 @@ for A in (cfmR, cfm) # fitting and non-fitting buffers give the same result
 end
 C = zeros(4, 5)
 @test mul!(C, G, cfm) ≈ Matrix(G) * Matrix(L)
-@test mul!(C, Adjoint(G'), cfm) ≈ Matrix(G) * Matrix(L)
 @test mul!(C, G, cfm, 2.0, 1.0) ≈ 3 * Matrix(G) * Matrix(L)
 Cf = FactoredMatrix(zeros(4, 2), zeros(5, 2)')
 @test Matrix(mul!(Cf, G, cfm)) ≈ Matrix(G) * Matrix(L)

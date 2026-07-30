@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws, @inferred
-using LinearAlgebra: Adjoint, Diagonal, Factorization, Hermitian, I, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
+using LinearAlgebra: Diagonal, Factorization, Hermitian, I, LowerTriangular, Symmetric, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 # the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
@@ -35,6 +35,11 @@ Ut2 = UpperTriangular(randn(2, 2))
 @test Matrix(FactoredMatrix(u52, Ut2')) ≈ u52 * Matrix(Ut2)'
 Hc2 = Hermitian(randn(ComplexF64, 2, 2))
 @test Matrix(FactoredMatrix(uc52, Hc2')) ≈ uc52 * Matrix(Hc2)
+Sr2 = Symmetric(randn(2, 2))
+@test Matrix(FactoredMatrix(u52, Sr2')) ≈ u52 * Matrix(Sr2)
+# a complex Symmetric's adjoint is a lazy wrapper, so the plain form stays ambiguous
+@test_throws ArgumentError FactoredMatrix(uc52, Symmetric(randn(ComplexF64, 2, 2)))
+@test Matrix(FactoredMatrix(uc52, Symmetric(randn(ComplexF64, 2, 2))')) isa Matrix
 
 # vector arguments are treated as one-column matrices
 x = randn(5)
@@ -135,42 +140,6 @@ A = FactoredMatrix(randn(6, 2), randn(5, 2)')
 @test Matrix(I * A) ≈ Matrix(A)
 @test Matrix(A * (2I)) ≈ 2 * Matrix(A)
 @test Matrix((3I) * A) ≈ 3 * Matrix(A)
-@test Matrix(Adjoint(A) * (2I)) ≈ 2 * Matrix(A)'
-@test Matrix((2I) * Transpose(A)) ≈ 2 * transpose(Matrix(A))
-
-# structured products with explicit wrappers dispatch cleanly (no ambiguity against
-# LinearAlgebra's Diagonal/triangular methods) and stay factored
-Asw = FactoredMatrix(randn(6, 2), randn(5, 2)') # Adjoint(Asw) is 5 × 6
-D5w = Diagonal(randn(5))
-D6w = Diagonal(randn(6))
-@test D5w * Adjoint(Asw) isa FactoredMatrix
-@test Matrix(D5w * Adjoint(Asw)) ≈ D5w * Matrix(Asw)'
-@test Matrix(Adjoint(Asw) * D6w) ≈ Matrix(Asw)' * D6w
-@test Matrix(UpperTriangular(ones(5, 5)) * Transpose(Asw)) ≈ UpperTriangular(ones(5, 5)) * transpose(Matrix(Asw))
-@test Matrix(Transpose(Asw) * UpperTriangular(ones(6, 6))) ≈ transpose(Matrix(Asw)) * UpperTriangular(ones(6, 6))
-
-# lazy sums and differences of explicit wrappers stay factored
-Bsw = FactoredMatrix(randn(ComplexF64, 5, 3), randn(ComplexF64, 6, 3)') # 5 × 6
-Csw = FactoredMatrix(randn(ComplexF64, 6, 1), randn(ComplexF64, 5, 1)') # 6 × 5
-Aswc = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
-@test Adjoint(Aswc) + Adjoint(Aswc) isa FactoredMatrix
-@test Matrix(Adjoint(Aswc) + Adjoint(Aswc)) ≈ 2 * Matrix(Aswc)'
-@test Matrix(Adjoint(Aswc) - Transpose(Csw)) ≈ Matrix(Aswc)' - transpose(Matrix(Csw))
-@test Matrix(Adjoint(Aswc) + Bsw) ≈ Matrix(Aswc)' + Matrix(Bsw)
-@test Matrix(Adjoint(Aswc) - Bsw) ≈ Matrix(Aswc)' - Matrix(Bsw)
-@test Matrix(Bsw + Transpose(Csw)) ≈ Matrix(Bsw) + transpose(Matrix(Csw))
-@test Matrix(Bsw - Adjoint(Aswc)) ≈ Matrix(Bsw) - Matrix(Aswc)'
-
-# scalar operations on explicit wrappers stay factored instead of materializing
-Aw = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
-Mw = Matrix(Aw)
-@test (1 + 2im) * Adjoint(Aw) isa FactoredMatrix
-@test Matrix((1 + 2im) * Adjoint(Aw)) ≈ (1 + 2im) * Mw'
-@test Matrix(Transpose(Aw) * (1 + 2im)) ≈ transpose(Mw) * (1 + 2im)
-@test Matrix(Adjoint(Aw) / 2im) ≈ Mw' / 2im
-@test Matrix(2im \ Transpose(Aw)) ≈ 2im \ transpose(Mw)
-@test -Adjoint(Aw) isa FactoredMatrix
-@test Matrix(-Transpose(Aw)) ≈ -transpose(Mw)
 
 # lazy sums and differences by factor concatenation
 for T in (Float64, ComplexF64)
@@ -262,33 +231,27 @@ T = LowerTriangular(randn(20, 20))
 @test @inferred(T * A) isa FactoredMatrix
 @test Matrix(T * A) ≈ T * Matrix(A)
 
-# products with explicit Adjoint/Transpose wrappers keep the factored structure
+# adjointed/transposed operands (plain FactoredMatrixes) keep the factored structure
 for T in (Float64, ComplexF64)
     local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)') # 20 × 12
     local B = FactoredMatrix(randn(T, 7, 2), randn(T, 12, 2)') # 7 × 12
     local B3 = FactoredMatrix(randn(T, 9, 2), randn(T, 20, 2)') # 9 × 20
     local C = randn(T, 12, 20)
     local x = randn(T, 20)
-    local y = randn(T, 7)
     local z = randn(T, 12)
-    @test @inferred(A * Adjoint(B)) isa FactoredMatrix
-    @test Matrix(A * Adjoint(B)) ≈ Matrix(A) * Matrix(B)'
-    @test rank(A * Adjoint(B)) == 2 # min(rank(A), rank(B)), not rank(A)
-    @test Matrix(A * Transpose(B)) ≈ Matrix(A) * transpose(Matrix(B))
-    @test Matrix(Adjoint(A) * Adjoint(B3)) ≈ Matrix(A)' * Matrix(B3)'
-    @test Matrix(Adjoint(A) * B3') ≈ Matrix(A)' * Matrix(B3)'
-    @test Matrix(A' * Adjoint(B3)) ≈ Matrix(A)' * Matrix(B3)'
-    @test Matrix(Adjoint(A)) ≈ Matrix(A)'
-    @test Matrix(Transpose(A)) ≈ transpose(Matrix(A))
-    @test Matrix(Adjoint(A) * C') ≈ Matrix(A)' * C'
-    @test Matrix(C' * Adjoint(A)) ≈ C' * Matrix(A)'
-    @test Adjoint(A) * x ≈ Matrix(A)' * x
-    @test y' * Adjoint(B') ≈ y' * Matrix(B')'
+    @test @inferred(A * B') isa FactoredMatrix
+    @test Matrix(A * B') ≈ Matrix(A) * Matrix(B)'
+    @test rank(A * B') == 2 # min(rank(A), rank(B)), not rank(A)
+    @test Matrix(A * transpose(B)) ≈ Matrix(A) * transpose(Matrix(B))
+    @test Matrix(A' * B3') ≈ Matrix(A)' * Matrix(B3)'
+    @test Matrix(A' * C') ≈ Matrix(A)' * C'
+    @test Matrix(C' * A') ≈ C' * Matrix(A)'
+    @test A' * x ≈ Matrix(A)' * x
     # row-vector left operands keep their row-vector shape, without spurious conjugation
     @test transpose(x) * A isa Transpose{<:Any, <:AbstractVector}
     @test transpose(x) * A ≈ transpose(x) * Matrix(A)
-    @test transpose(z) * Transpose(A) isa Transpose{<:Any, <:AbstractVector}
-    @test transpose(z) * Transpose(A) ≈ transpose(z) * transpose(Matrix(A))
+    @test transpose(z) * transpose(A) isa Transpose{<:Any, <:AbstractVector}
+    @test transpose(z) * transpose(A) ≈ transpose(z) * transpose(Matrix(A))
 end
 
 # left division: square invertible case
@@ -385,6 +348,11 @@ A64 = FactoredMatrix(Float64[4097 4096], Float64[4097 -4096]') # entry is exactl
 # mismatched shapes throw instead of silently indexing into the larger operand
 @test_throws DimensionMismatch dot(A32, FactoredMatrix(randn(2, 1), randn(2, 1)'))
 @test_throws DimensionMismatch dot(A32, randn(2, 2))
+
+# the default isapprox rtol matches dense: max of the per-eltype defaults for mixed
+# precisions, and 0 (exact) for integer factorizations
+@test isapprox(A32, A64) == isapprox(Matrix(A32), Matrix(A64)) == true
+@test !isapprox(FactoredMatrix([100_000_000;;], [1;;]'), FactoredMatrix([100_000_001;;], [1;;]'))
 
 # non-finite factors with well-defined represented entries: norm, sum(abs2) and the
 # self-dot reduce the entries directly, since a QR of the factors would produce NaNs

@@ -154,74 +154,48 @@ function _fmul!(C::FactoredMatrix, A::AbstractMatrix, M::FactoredMatrix, ::Maybe
     return C
 end
 
-# Repack a plain product of dense factors: C = A * B, so C.u = A and C.v = B'.
-function _fmul!(C::FactoredMatrix, A::AbstractMatrix, B::AbstractMatrix, ::MaybeWorkspace)
-    _copyfactor!(C.u, A)
-    if size(C.v) ≠ (size(B, 2), size(B, 1))
-        throw(DimensionMismatch("output factor has size $(size(C.v)), expected $((size(B, 2), size(B, 1)))"))
-    end
-    C.v .= B'
-    return C
-end
-
 #=== public mul! methods ===#
 
 """
     mul!(C, A, B, [α, β]; cache::Union{Nothing, FactoredMatrices.Workspace} = nothing)
 
-Three- and five-argument `mul!` where `A`, `B` and/or `C` are [`FactoredMatrix`](@ref)es
-(or their `Adjoint`/`Transpose` wrappers), exploiting the factored form. Pass a
-pre-allocated [`FactoredMatrices.Workspace`](@ref) as `cache` to make repeated products
-allocation-free.
+Three- and five-argument `mul!` where `A`, `B` and/or `C` are [`FactoredMatrix`](@ref)es,
+exploiting the factored form. Pass a pre-allocated [`FactoredMatrices.Workspace`](@ref)
+as `cache` to make repeated products allocation-free.
 """
 mul!
 
-# Signatures must name FactoredMatrix or the wrapper union explicitly — never a Union
-# of the two — so each method is strictly more specific than the LinearAlgebra generics.
-for FM in (:FactoredMatrix, :AdjOrTransFM)
-    @eval begin
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::$FM, B::AbstractMatrix, α::Number, β::Number; cache::MaybeWorkspace = nothing)
-            return _mul!(C, rewrap(A), B, α, β, cache)
-        end
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::$FM, α::Number, β::Number; cache::MaybeWorkspace = nothing)
-            return _mul!(C, A, rewrap(B), α, β, cache)
-        end
-        function LinearAlgebra.mul!(y::AbstractVector, A::$FM, x::AbstractVector, α::Number, β::Number; cache::MaybeWorkspace = nothing)
-            return _mul!(y, rewrap(A), x, α, β, cache)
-        end
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::$FM, B::AbstractMatrix; cache::MaybeWorkspace = nothing)
-            return _mul!(C, rewrap(A), B, true, false, cache)
-        end
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::$FM; cache::MaybeWorkspace = nothing)
-            return _mul!(C, A, rewrap(B), true, false, cache)
-        end
-        function LinearAlgebra.mul!(y::AbstractVector, A::$FM, x::AbstractVector; cache::MaybeWorkspace = nothing)
-            return _mul!(y, rewrap(A), x, true, false, cache)
-        end
-        function LinearAlgebra.mul!(C::FactoredMatrix, A::$FM, B::AbstractMatrix; cache::MaybeWorkspace = nothing)
-            return _fmul!(C, rewrap(A), B, cache)
-        end
-        function LinearAlgebra.mul!(C::FactoredMatrix, A::AbstractMatrix, B::$FM; cache::MaybeWorkspace = nothing)
-            return _fmul!(C, A, rewrap(B), cache)
-        end
-    end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::AbstractMatrix, α::Number, β::Number; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, α, β, cache)
 end
-
-for FMA in (:FactoredMatrix, :AdjOrTransFM), FMB in (:FactoredMatrix, :AdjOrTransFM)
-    @eval begin
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::$FMA, B::$FMB, α::Number, β::Number; cache::MaybeWorkspace = nothing)
-            return _mul!(C, rewrap(A), rewrap(B), α, β, cache)
-        end
-        function LinearAlgebra.mul!(C::AbstractMatrix, A::$FMA, B::$FMB; cache::MaybeWorkspace = nothing)
-            return _mul!(C, rewrap(A), rewrap(B), true, false, cache)
-        end
-        function LinearAlgebra.mul!(C::FactoredMatrix, A::$FMA, B::$FMB; cache::MaybeWorkspace = nothing)
-            return _fmul!(C, rewrap(A), rewrap(B), cache)
-        end
-    end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::FactoredMatrix, α::Number, β::Number; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, α, β, cache)
 end
-
-function LinearAlgebra.mul!(C::FactoredMatrix, A::AbstractMatrix, B::AbstractMatrix; cache::MaybeWorkspace = nothing)
+function LinearAlgebra.mul!(y::AbstractVector, A::FactoredMatrix, x::AbstractVector, α::Number, β::Number; cache::MaybeWorkspace = nothing)
+    return _mul!(y, A, x, α, β, cache)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::FactoredMatrix, α::Number, β::Number; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, α, β, cache)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::AbstractMatrix; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, true, false, cache)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B::FactoredMatrix; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, true, false, cache)
+end
+function LinearAlgebra.mul!(y::AbstractVector, A::FactoredMatrix, x::AbstractVector; cache::MaybeWorkspace = nothing)
+    return _mul!(y, A, x, true, false, cache)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::FactoredMatrix; cache::MaybeWorkspace = nothing)
+    return _mul!(C, A, B, true, false, cache)
+end
+function LinearAlgebra.mul!(C::FactoredMatrix, A::FactoredMatrix, B::AbstractMatrix; cache::MaybeWorkspace = nothing)
+    return _fmul!(C, A, B, cache)
+end
+function LinearAlgebra.mul!(C::FactoredMatrix, A::AbstractMatrix, B::FactoredMatrix; cache::MaybeWorkspace = nothing)
+    return _fmul!(C, A, B, cache)
+end
+function LinearAlgebra.mul!(C::FactoredMatrix, A::FactoredMatrix, B::FactoredMatrix; cache::MaybeWorkspace = nothing)
     return _fmul!(C, A, B, cache)
 end
 
@@ -277,7 +251,6 @@ Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 # operation; the element-type match is decided inside _lbuf/_rbuf.
 _pdim(B::AbstractMatrix) = size(B, 2)
 _pdim(B::FactoredMatrix) = rank(B)
-_pdim(B::AdjOrTransFM) = rank(parent(B))
 
 function _left_cache(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix})
     return size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
@@ -288,18 +261,9 @@ end
 function _right_cache(B::CachedFactoredMatrix, A::AbstractMatrix)
     return size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
 end
-# Factored × cached products use the left buffer (shape rank(A) × rank(B.M)); when the
-# ranks differ, the bundled right buffer may have exactly that shape instead.
-function _right_cache(B::CachedFactoredMatrix, A::Union{FactoredMatrix, AdjOrTransFM})
-    shape = (rank(rewrap(A)), rank(B.M))
-    ws = B.ws
-    if size(ws.left) == shape
-        return ws
-    elseif size(ws.right) == shape
-        return Workspace{eltype(ws.left)}(ws.right, ws.left)
-    else
-        return nothing
-    end
+# Factored × cached products use the left buffer, with shape rank(A) × rank(B.M).
+function _right_cache(B::CachedFactoredMatrix, A::FactoredMatrix)
+    return size(B.ws.left) == (rank(A), rank(B.M)) ? B.ws : nothing
 end
 
 # The forwarding methods call the positional internals directly: routing the bundled
@@ -320,16 +284,12 @@ Base.@inline function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B
 end
 
 # Factored operands are supported like on a plain FactoredMatrix.
-for BT in (:FactoredMatrix, :AdjOrTransFM)
-    @eval begin
-        LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::$BT) = _mul!(C, A.M, rewrap(B), true, false, _left_cache(A, B))
-        LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::$BT) = _fmul!(C, A.M, rewrap(B), _left_cache(A, B))
-        LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::$BT, α::Number, β::Number) = _mul!(C, A.M, rewrap(B), α, β, _left_cache(A, B))
-        LinearAlgebra.mul!(C::AbstractMatrix, A::$BT, B::CachedFactoredMatrix) = _mul!(C, rewrap(A), B.M, true, false, _right_cache(B, A))
-        LinearAlgebra.mul!(C::FactoredMatrix, A::$BT, B::CachedFactoredMatrix) = _fmul!(C, rewrap(A), B.M, _right_cache(B, A))
-        LinearAlgebra.mul!(C::AbstractMatrix, A::$BT, B::CachedFactoredMatrix, α::Number, β::Number) = _mul!(C, rewrap(A), B.M, α, β, _right_cache(B, A))
-    end
-end
+LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::FactoredMatrix) = _mul!(C, A.M, B, true, false, _left_cache(A, B))
+LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::FactoredMatrix) = _fmul!(C, A.M, B, _left_cache(A, B))
+LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::FactoredMatrix, α::Number, β::Number) = _mul!(C, A.M, B, α, β, _left_cache(A, B))
+LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::CachedFactoredMatrix) = _mul!(C, A, B.M, true, false, _right_cache(B, A))
+LinearAlgebra.mul!(C::FactoredMatrix, A::FactoredMatrix, B::CachedFactoredMatrix) = _fmul!(C, A, B.M, _right_cache(B, A))
+LinearAlgebra.mul!(C::AbstractMatrix, A::FactoredMatrix, B::CachedFactoredMatrix, α::Number, β::Number) = _mul!(C, A, B.M, α, β, _right_cache(B, A))
 LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix) = _mul!(C, A.M, B.M, true, false, _left_cache(A, B.M))
 LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix) = _fmul!(C, A.M, B.M, _left_cache(A, B.M))
 function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::CachedFactoredMatrix, α::Number, β::Number)
@@ -340,8 +300,6 @@ end
 Base.:(*)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M * B
 Base.:(*)(A::FactoredMatrix, B::CachedFactoredMatrix) = A * B.M
 Base.:(*)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M * B.M
-Base.:(*)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M * rewrap(B)
-Base.:(*)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) * B.M
 
 # Allocating products with dense operands: the output has the element type of the
 # ordinary matrix product; the intermediates use the buffers whenever they fit.
