@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file. The format 
 - `FactoredMatrices.CachedFactoredMatrix`: bundles a `FactoredMatrix` with its `Workspace` so `*` and `mul!` use the buffers automatically.
 - Closed-form `dot` (Frobenius inner product) and `tr` from small Gram matrices, and `norm`/`sum(abs2, A)` via thin QR of the factors (stable even when the represented matrix is much smaller than its factors), all without materializing the dense matrix.
 - Lazy `+` and `-` by factor concatenation (storage ranks add up), and `-A`, `A / a`, `a \ A` scalar operations.
-- `==`, `isequal`, `isapprox` and `hash`. Equality compares the *represented* matrices: `==` entrywise without materializing (`O(1)` memory), `isequal` with dense-array NaN semantics (so factorizations with NaN entries work as hashed-collection keys), `isapprox` in the Frobenius norm evaluated in closed form from the factors at `O((m + n) * (rank(A) + rank(B))²)` cost.
+- `isapprox`, comparing the *represented* matrices in the Frobenius norm, evaluated in closed form from the factors at `O((m + n) * (rank(A) + rank(B))²)` cost. (`==`, `isequal` and `hash` follow the standard field-wise `Factorization` fallback, comparing the stored factors.)
 - `size(A, d)`, `length`, and docstrings for the public API.
 - `FactoredMatrix` factors with different element types are now promoted to a common element type. In particular, multiplication by a type-promoting scalar (e.g. `(1 + im) * A` for a real `A`) now works instead of throwing a `MethodError`.
 

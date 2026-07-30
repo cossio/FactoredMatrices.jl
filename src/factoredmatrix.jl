@@ -16,9 +16,10 @@ and taken verbatim as the right multiplicand. Factors with different element typ
 promoted to a common element type.
 
 `FactoredMatrix <: Factorization`, so — like the standard-library `Factorization`
-types — it supports neither indexing nor iteration. The supported operations (`*`,
-`mul!`, `+`, `-`, `dot`, `norm`, `svd`, `\\`, ...) exploit the factors and never
-materialize the dense `m × n` matrix.
+types — it supports neither indexing nor iteration, and `==`, `isequal` and `hash`
+compare the stored factors field-wise (use `isapprox` to compare the represented
+matrices). The supported operations (`*`, `mul!`, `+`, `-`, `dot`, `norm`, `svd`,
+`\\`, ...) exploit the factors and never materialize the dense `m × n` matrix.
 
 The factors are stored (not copied) in the fields `u` (`m × r`) and `v` (`n × r`).
 """
@@ -80,8 +81,8 @@ upper bound of (not necessarily equal to) the numerical rank of the represented 
 """
 LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 
-# Internal O(rank) entry accessor, backing the entrywise fallbacks of ==, isapprox,
-# iszero, norm, dot and hash. Deliberately not getindex: like the standard-library
+# Internal O(rank) entry accessor, backing the entrywise fallbacks of isapprox,
+# iszero, norm and dot. Deliberately not getindex: like the standard-library
 # Factorization types, FactoredMatrix exposes no indexing API.
 _entry(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
@@ -110,43 +111,11 @@ Base.copy(L::FactoredMatrix) = _FactoredMatrix(copy(L.u), copy(L.v))
 Base.show(io::IO, L::FactoredMatrix) = print(io, "FactoredMatrix{", eltype(L), "} of size ", size(L), " and rank ", rank(L))
 Base.show(io::IO, ::MIME"text/plain", L::FactoredMatrix) = show(io, L)
 
-#=== equality ===#
+#=== approximate equality ===#
 
-"""
-    ==(A::FactoredMatrix, B::FactoredMatrix)
-
-Exact elementwise equality of the represented matrices, one entry at a time from the
-factors (`O(m * n * rank)` work, `O(1)` memory). Exact equality of different
-factorizations is unlikely in floating point; [`isapprox`](@ref) is usually what you
-want. There is deliberately no equal-factor shortcut: equal factors can still represent
-`NaN` entries (e.g. from `0 * Inf`), which compare unequal like in dense arrays.
-"""
-function Base.:(==)(A::FactoredMatrix, B::FactoredMatrix)
-    size(A) == size(B) || return false
-    return all(_entry(A, i, j) == _entry(B, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
-end
-
-# isequal uses dense-array semantics (NaN entries equal to themselves), so that
-# factorizations work as hashed-collection keys even with NaN entries.
-function Base.isequal(A::FactoredMatrix, B::FactoredMatrix)
-    size(A) == size(B) || return false
-    return all(isequal(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
-end
-
-# Entries that are `==` must hash equally; collapse ±0.0, which hash differently.
-_canonicalzero(x) = iszero(x) ? zero(x) : x
-
-# Hash from the represented content (size and sampled entries), never from the factors,
-# so that `==` matrices with different factorizations hash equally.
-function Base.hash(A::FactoredMatrix, h::UInt)
-    h = hash(:FactoredMatrix, h)
-    h = hash(size(A), h)
-    m, n = size(A)
-    if m > 0 && n > 0
-        h = hash(_canonicalzero(_entry(A, 1, 1)), hash(_canonicalzero(_entry(A, m, n)), h))
-    end
-    return h
-end
+# ==, isequal and hash are the standard field-wise Factorization fallbacks from
+# LinearAlgebra (comparing the stored factors); isapprox compares the represented
+# matrices.
 
 # Default rtol with Base.rtoldefault's semantics (the larger of the per-eltype
 # defaults, e.g. √eps(Float32) for a Float32/Float64 comparison; 0 for integers),

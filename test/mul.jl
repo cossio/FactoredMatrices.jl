@@ -297,7 +297,7 @@ M65 = Matrix(L)
 # non-multiplication operations are deliberately not forwarded; unwrap with cfm.M
 @test_throws MethodError cfm + cfm
 @test_throws MethodError norm(cfm)
-@test cfm != FactoredMatrices.CachedFactoredMatrix(copy(L), 3) # identity semantics
+@test cfm != FactoredMatrices.CachedFactoredMatrix(copy(L), 3) # distinct Workspace field
 
 # factored destinations work with dense operands through the cache
 mfB = randn(5, 4)

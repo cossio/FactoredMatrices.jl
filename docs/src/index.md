@@ -6,7 +6,7 @@ CurrentModule = FactoredMatrices
 
 A Julia package implementing a [`FactoredMatrix`](@ref) type: a lazy matrix stored as a product `u * v'` of two factor matrices, `u` (of size `m × r`) and `v` (of size `n × r`), typically with `r < m, n`. Storing the factors instead of the full `m × n` matrix saves memory and makes many operations cheaper when the rank `r` is small.
 
-`FactoredMatrix` is a `LinearAlgebra.Factorization`, not an `AbstractMatrix`: it does not support iteration or the dense generic fallbacks, and instead implements `*`, `mul!`, `+`, `-`, scalar multiples, `dot`, `norm`, `tr`, `svd`, `\` (least-squares / pseudoinverse solution), `==`/`isapprox`, and conversion via `Matrix(A)` — all exploiting the factored form.
+`FactoredMatrix` is a `LinearAlgebra.Factorization`, not an `AbstractMatrix`: it does not support iteration or the dense generic fallbacks, and instead implements `*`, `mul!`, `+`, `-`, scalar multiples, `dot`, `norm`, `tr`, `svd`, `\` (least-squares / pseudoinverse solution), `isapprox`, and conversion via `Matrix(A)` — all exploiting the factored form.
 
 ## Installation
 

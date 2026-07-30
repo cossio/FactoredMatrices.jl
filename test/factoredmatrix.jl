@@ -65,7 +65,7 @@ A = FactoredMatrix(randn(20, 4), randn(12, 4)')
 @test rank(A) == 4
 @test_throws MethodError A[1, 1]
 M = Matrix(A)
-# the internal O(rank) entry accessor backs ==, isapprox, iszero, hash, ...
+# the internal O(rank) entry accessor backs isapprox, iszero, norm, dot, ...
 @test all(FactoredMatrices._entry(A, i, j) ≈ M[i, j] for i in 1:20, j in 1:12)
 
 # iszero
