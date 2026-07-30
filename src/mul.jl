@@ -274,6 +274,25 @@ Base.:(/)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M / a, C.
 Base.:(\)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a \ C.M, C.ws)
 Base.:(*)(C::CachedFactoredMatrix, J::UniformScaling) = CachedFactoredMatrix(C.M * J.λ, C.ws)
 Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.λ * C.M, C.ws)
+Base.:(+)(C::CachedFactoredMatrix) = C
+Base.:(-)(C::CachedFactoredMatrix) = CachedFactoredMatrix(-C.M, C.ws) # rank unchanged, buffers still fit
+
+# Lazy sums and differences forward to the wrapped matrices. The result is a plain
+# FactoredMatrix: its storage rank is the sum of the operand ranks, so the bundled
+# rank-sized buffers would not fit it anyway.
+Base.:(+)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M + B.M
+Base.:(+)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M + B
+Base.:(+)(A::FactoredMatrix, B::CachedFactoredMatrix) = A + B.M
+Base.:(-)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M - B.M
+Base.:(-)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M - B
+Base.:(-)(A::FactoredMatrix, B::CachedFactoredMatrix) = A - B.M
+
+# The copy gets duplicated factors and its own scratch buffers (their contents are
+# scratch, so fresh undef buffers suffice), making it safe for use in another task.
+function Base.copy(C::CachedFactoredMatrix)
+    ws = Workspace{eltype(C.ws.left)}(similar(C.ws.left), similar(C.ws.right))
+    return CachedFactoredMatrix(copy(C.M), ws)
+end
 
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)

@@ -339,6 +339,27 @@ cfmB = FactoredMatrices.CachedFactoredMatrix(copy(L), 3)
 @test cfm ≈ L
 @test L ≈ cfm
 
+# lazy sums and differences forward to the wrapped factorization
+@test cfm + cfm isa FactoredMatrix
+@test Matrix(cfm + cfm) ≈ 2 * M65
+@test Matrix(cfm + L) ≈ 2 * M65
+@test Matrix(L + cfm) ≈ 2 * M65
+@test Matrix(cfm - L) ≈ zeros(6, 5) atol = 1.0e-8
+@test Matrix(L - cfm) ≈ zeros(6, 5) atol = 1.0e-8
+@test Matrix(cfm - cfm) ≈ zeros(6, 5) atol = 1.0e-8
+@test +cfm === cfm
+@test -cfm isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(-cfm) ≈ -M65
+
+# copies duplicate the factors and get independent scratch buffers
+cfmCopy = copy(cfm)
+@test cfmCopy isa FactoredMatrices.CachedFactoredMatrix
+@test cfmCopy == cfm
+@test cfmCopy.M.u !== cfm.M.u
+@test cfmCopy.ws !== cfm.ws
+@test cfmCopy.ws.left !== cfm.ws.left
+@test size(cfmCopy.ws.left) == size(cfm.ws.left)
+
 # factored destinations work with dense operands through the cache
 mfB = randn(5, 4)
 CfL = FactoredMatrix(zeros(6, 2), zeros(4, 2)')

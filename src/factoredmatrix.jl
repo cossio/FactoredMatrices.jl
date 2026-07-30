@@ -216,7 +216,7 @@ Base.:(-)(A::FactoredMatrix, B::FactoredMatrix) = _FactoredMatrix([A.u B.u], [A.
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
     if size(L.v, 1) == size(M.u, 1) == 0
         r = min(rank(L), rank(M))
-        T = promote_type(eltype(L), eltype(M))
+        T = _prodtype(eltype(L), eltype(M)) # the accumulation type, like the nonempty branches
         return _FactoredMatrix(zeros(T, size(L.u, 1), r), zeros(T, size(M.v, 1), r))
     elseif rank(L) ≤ rank(M)
         return _FactoredMatrix(copy(L.u), M.v * (M.u' * L.v))

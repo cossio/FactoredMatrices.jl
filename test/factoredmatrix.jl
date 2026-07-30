@@ -192,6 +192,11 @@ Le = FactoredMatrix(fill(Inf, 2, 1), zeros(0, 1)') # 2 × 0
 Me = FactoredMatrix(zeros(0, 1), fill(Inf, 3, 1)') # 0 × 3
 @test size(Le * Me) == (2, 3)
 @test iszero(Matrix(Le * Me))
+# empty products of Bool factors accumulate into Int, like ordinary matrix products
+LbE = FactoredMatrix(trues(2, 1), trues(0, 1)') # 2 × 0
+MbE = FactoredMatrix(trues(0, 1), trues(3, 1)') # 0 × 3
+@test eltype(LbE * MbE) == Int
+@test iszero(Matrix(LbE * MbE))
 @test iszero(Matrix(Le * zeros(0, 3)))
 @test iszero(Matrix(zeros(3, 0) * Me))
 @test iszero(Le * zeros(0))
