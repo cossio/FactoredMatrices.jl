@@ -130,13 +130,25 @@ Approximate equality `norm(A - B) ≤ max(atol, rtol * max(norm(A), norm(B)))` i
 Frobenius norm, like `isapprox` for arrays. `A - B` is itself low-rank, so its norm is
 evaluated from thin QR factorizations of the concatenated factors at
 `O((m + n) * (rank(A) + rank(B))²)` cost, never materializing the dense matrices.
-When the distance is not finite, falls back to elementwise comparison, like arrays.
+Mixed element types evaluate the distance entrywise (`O(m * n * rank)`), preserving
+each operand's represented-entry arithmetic, like [`dot`](@ref). When the distance is
+not finite, falls back to elementwise comparison, like arrays.
 """
 function Base.isapprox(
         A::FactoredMatrix, B::FactoredMatrix;
         atol::Real = 0, rtol::Real = _rtoldefault(A, B, atol), nans::Bool = false
     )
-    d = norm(A - B)
+    if size(A) ≠ size(B)
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
+    end
+    # Mixed element types: promoting the factors (as A - B would) can erase overflow
+    # in the narrower operand's entries, so evaluate the distance from the represented
+    # entries in each operand's own arithmetic, like dot.
+    d = if eltype(A) === eltype(B) || length(A) == 0
+        norm(A - B)
+    else
+        norm(_entry(A, i, j) - _entry(B, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
+    end
     if isfinite(d)
         return d ≤ max(atol, rtol * max(norm(A), norm(B)))
     else

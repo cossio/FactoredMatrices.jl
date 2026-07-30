@@ -354,6 +354,14 @@ A64 = FactoredMatrix(Float64[4097 4096], Float64[4097 -4096]') # entry is exactl
 @test isapprox(A32, A64) == isapprox(Matrix(A32), Matrix(A64)) == true
 @test !isapprox(FactoredMatrix([100_000_000;;], [1;;]'), FactoredMatrix([100_000_001;;], [1;;]'))
 
+# mixed precision where the narrower operand overflows: promoting the factors would
+# erase the Inf32 entry, so the distance is evaluated in each operand's own arithmetic
+# (dense compares Inf32 against the finite Float64 entry)
+Aof = FactoredMatrix([floatmax(Float32);;], [2.0f0;;]')
+Bof = FactoredMatrix([Float64(floatmax(Float32));;], [2.0;;]')
+@test Matrix(Aof) == [Inf32;;]
+@test isapprox(Aof, Bof) == isapprox(Bof, Aof) == isapprox(Matrix(Aof), Matrix(Bof)) == false
+
 # non-finite factors with well-defined represented entries: norm, sum(abs2) and the
 # self-dot reduce the entries directly, since a QR of the factors would produce NaNs
 An = FactoredMatrix([Inf 1.0; Inf 2.0], [1.0 1.0]')
