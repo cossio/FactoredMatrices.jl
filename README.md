@@ -104,4 +104,6 @@ mul!(C, cfm, B) # no allocation
 
 Thanks to [Tim Holy](https://github.com/timholy) for suggesting the
 `FactoredMatrix(U, V')` constructor, where the second factor is passed adjointed so that
-the call reads as the product it represents.
+the call reads as the product it represents. `mul!` and various other features here are
+ported from his package,
+[HolyLab/FactoredMatrices.jl](https://github.com/HolyLab/FactoredMatrices.jl).
