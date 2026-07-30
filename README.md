@@ -91,7 +91,10 @@ mul!(C, cfm, B) # no allocation
 
 - [HolyLab/FactoredMatrices.jl](https://github.com/HolyLab/FactoredMatrices.jl): same
   idea with a `U * V` (not `u * v'`) storage convention; several features here originated
-  there.
+  there. See [this benchmark report](https://claude.ai/code/artifact/b7cb20d6-128d-4f57-bbaf-7d8609b812e8)
+  for a feature, performance and allocation comparison of the two packages (and a dense
+  baseline): the shared `mul!` core performs identically in both, and they differ in
+  structure-preserving products, numerically stable norms, and operation coverage.
 - [LowRankApprox.jl](https://github.com/JuliaLinearAlgebra/LowRankApprox.jl): low-rank
   approximation algorithms; inspired the original implementation of this package.
 - [LinearMaps.jl](https://github.com/JuliaLinearAlgebra/LinearMaps.jl),
