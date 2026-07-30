@@ -254,8 +254,10 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     T = _prodtype(eltype(A), eltype(B)) # the accumulation type of the inner product
     if size(A) == size(B) && length(A) == 0
         return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
-    elseif A === B
-        return convert(T, sum(abs2, A)) # stable, nonnegative self-inner product
+    elseif A === B || (A.u == B.u && A.v == B.v)
+        # stable, nonnegative self-inner product; equal factors (e.g. from copy) mean
+        # the same represented matrix computed the same way
+        return convert(T, sum(abs2, A))
     end
     return sum((A.u' * B.u) .* conj.(A.v' * B.v))
 end

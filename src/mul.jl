@@ -107,11 +107,14 @@ end
 
 # Verbatim factor copy with a strict shape check: broadcasting `.=` would silently
 # expand singleton dimensions (e.g. copying an m × 1 factor into an m × 2 one).
-function _copyfactor!(dst::AbstractMatrix, src::AbstractMatrix)
+# With `zero_it` the destination is zero-filled instead: used when an empty contracted
+# dimension makes the product exactly zero, so copying (possibly non-finite) unused
+# factor values would corrupt the result with 0 * Inf entries.
+function _copyfactor!(dst::AbstractMatrix, src::AbstractMatrix, zero_it::Bool = false)
     if size(dst) ≠ size(src)
         throw(DimensionMismatch("output factor has size $(size(dst)), expected $(size(src))"))
     end
-    return copyto!(dst, src)
+    return zero_it ? fill!(dst, zero(eltype(dst))) : copyto!(dst, src)
 end
 
 # One factor of the product is copied verbatim, the other absorbs t = v_L' * u_M; which
@@ -140,7 +143,7 @@ end
 
 # C = L * B = u * (v' * B), so C.u = u and C.v = B' * v. Allocation-free, no cache needed.
 function _fmul!(C::FactoredMatrix, L::FactoredMatrix, B::AbstractMatrix, ::MaybeWorkspace)
-    _copyfactor!(C.u, L.u)
+    _copyfactor!(C.u, L.u, size(L.v, 1) == 0)
     mul!(C.v, B', L.v)
     return C
 end
@@ -148,7 +151,7 @@ end
 # C = A * M = (A * u) * v', so C.u = A * u and C.v = v. Allocation-free, no cache needed.
 function _fmul!(C::FactoredMatrix, A::AbstractMatrix, M::FactoredMatrix, ::MaybeWorkspace)
     mul!(C.u, A, M.u)
-    _copyfactor!(C.v, M.v)
+    _copyfactor!(C.v, M.v, size(M.u, 1) == 0)
     return C
 end
 

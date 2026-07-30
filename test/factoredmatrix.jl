@@ -267,6 +267,9 @@ E1 = FactoredMatrix(zeros(0, 1), fill(Inf, 2, 1)')
 Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
 @test dot(Afc, Afc) ≥ 0
 @test dot(Afc, Afc) ≈ sum(abs2, Matrix(Afc))
+# equal factors (not just identical objects) also take the stable self-dot path
+@test dot(Afc, copy(Afc)) ≥ 0
+@test dot(Afc, copy(Afc)) == dot(Afc, Afc)
 Ac2 = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
 @test dot(Ac2, Ac2) isa ComplexF64
 @test dot(Ac2, Ac2) ≈ dot(Matrix(Ac2), Matrix(Ac2))

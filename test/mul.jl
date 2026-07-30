@@ -273,6 +273,8 @@ C0 = randn(2, 3)
 @test iszero(mul!(randn(2), Le, zeros(0)))
 Cfe = FactoredMatrix(randn(2, 1), randn(3, 1)')
 @test iszero(Matrix(mul!(Cfe, Le, Me)))
+@test iszero(Matrix(mul!(FactoredMatrix(randn(2, 1), randn(3, 1)'), Le, zeros(0, 3))))
+@test iszero(Matrix(mul!(FactoredMatrix(randn(3, 1), randn(3, 1)'), zeros(3, 0), Me)))
 @test_throws DimensionMismatch mul!(FactoredMatrix(randn(5, 1), randn(3, 1)'), Le, Me)
 
 # adjoint/transpose of a cached matrix forward to the wrapped matrix, sharing buffers
