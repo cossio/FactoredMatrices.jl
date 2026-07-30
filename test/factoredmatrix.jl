@@ -55,6 +55,12 @@ M = Matrix(A)
 @test @inferred iszero(FactoredMatrix(zeros(10, 3), randn(5, 3)'))
 @test iszero(FactoredMatrix(randn(10, 3), zeros(5, 3)'))
 @test !iszero(FactoredMatrix(randn(10, 3), randn(5, 3)'))
+
+# nonzero factors can cancel: A - A represents the zero matrix. Integer-valued factors
+# keep every product and partial sum exact, so the cancellation survives FMA contraction.
+A1z = FactoredMatrix(Float64[1 2; 3 4; 5 6], Float64[1 2; 3 4]')
+@test @inferred iszero(A1z - A1z)
+@test !iszero(A1z + A1z)
 # 0 * NaN = NaN and 0 * Inf = NaN, so these are not zero matrices
 @test !iszero(FactoredMatrix(zeros(10, 3), fill(NaN, 5, 3)'))
 @test !iszero(FactoredMatrix(fill(NaN, 10, 3), zeros(5, 3)'))

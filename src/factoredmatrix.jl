@@ -72,10 +72,17 @@ LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 # Single entries are cheap (O(rank)); full indexing semantics are deliberately absent.
 Base.getindex(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
-# An empty represented matrix is zero whatever the (unused) factor values are.
-# Otherwise, 0 * Inf = NaN and 0 * NaN = NaN, so a zero factor only gives a zero matrix
-# if the other factor is finite.
-Base.iszero(L::FactoredMatrix) = length(L) == 0 || (iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v))
+# A zero factor gives an exactly zero product without looking at entries, provided the
+# cofactor is finite (0 * Inf = NaN and 0 * NaN = NaN). Nonzero factors can still cancel
+# to the zero matrix (e.g. A - A, whose factor columns cancel pairwise), so otherwise
+# check the represented entries, short-circuiting at the first nonzero one; an empty
+# matrix is trivially zero on either path.
+function Base.iszero(L::FactoredMatrix)
+    if iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
+        return true
+    end
+    return all(iszero(L[i, j]) for i in axes(L.u, 1), j in axes(L.v, 1))
+end
 
 Base.adjoint(L::FactoredMatrix) = _FactoredMatrix(L.v, L.u)
 Base.transpose(L::FactoredMatrix) = _FactoredMatrix(conj(L.v), conj(L.u))
