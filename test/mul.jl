@@ -155,6 +155,7 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test length(cfm) == length(L)
     @test rank(cfm) == rank(L)
     @test eltype(cfm) == T
+    @test cfm[2, 3] == L[2, 3]
     @test Matrix(cfm) == Array(cfm) == M
     @test sum(abs2, cfm) ≈ sum(abs2, M)
     @test sprint(show, cfm) == "Cached" * sprint(show, L)

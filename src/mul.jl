@@ -272,6 +272,7 @@ Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.Î
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)
 Base.length(C::CachedFactoredMatrix) = length(C.M)
+Base.getindex(C::CachedFactoredMatrix, i::Integer, j::Integer) = C.M[i, j]
 LinearAlgebra.rank(C::CachedFactoredMatrix) = rank(C.M)
 Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)

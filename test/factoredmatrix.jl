@@ -125,6 +125,17 @@ A = FactoredMatrix(randn(6, 2), randn(5, 2)')
 @test Matrix(Adjoint(A) * (2I)) ≈ 2 * Matrix(A)'
 @test Matrix((2I) * Transpose(A)) ≈ 2 * transpose(Matrix(A))
 
+# scalar operations on explicit wrappers stay factored instead of materializing
+Aw = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
+Mw = Matrix(Aw)
+@test (1 + 2im) * Adjoint(Aw) isa FactoredMatrix
+@test Matrix((1 + 2im) * Adjoint(Aw)) ≈ (1 + 2im) * Mw'
+@test Matrix(Transpose(Aw) * (1 + 2im)) ≈ transpose(Mw) * (1 + 2im)
+@test Matrix(Adjoint(Aw) / 2im) ≈ Mw' / 2im
+@test Matrix(2im \ Transpose(Aw)) ≈ 2im \ transpose(Mw)
+@test -Adjoint(Aw) isa FactoredMatrix
+@test Matrix(-Transpose(Aw)) ≈ -transpose(Mw)
+
 # lazy sums and differences by factor concatenation
 for T in (Float64, ComplexF64)
     local A = FactoredMatrix(randn(T, 20, 4), randn(T, 12, 4)')
@@ -274,6 +285,19 @@ B9 = randn(9, 3)
 @test FactoredMatrix(zeros(3, 0), zeros(2, 0)') \ ones(3) == zeros(2)
 @test FactoredMatrix(zeros(3, 2), zeros(2, 2)') \ ones(3, 4) == zeros(2, 4)
 @test_throws DimensionMismatch A1 \ ones(2)
+
+# left division: singular values below pinv's dimension-scaled cutoff are treated as
+# zero (eps * min(m, n) * S[1] here discards 1e-15; an unscaled eps * S[1] would keep
+# it and blow the solution up to order 1e15)
+uc = zeros(100, 2)
+uc[1, 1] = uc[2, 2] = 1
+vc = zeros(100, 2)
+vc[1, 1] = 1
+vc[2, 2] = 1.0e-15
+Lc = FactoredMatrix(uc, vc')
+bc2 = zeros(100)
+bc2[2] = 1
+@test Lc \ bc2 ≈ pinv(Matrix(Lc)) * bc2 atol = 1.0e-8
 
 # dot, sum(abs2), norm, tr
 for T in (Float64, ComplexF64)

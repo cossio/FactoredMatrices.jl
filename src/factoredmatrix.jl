@@ -245,6 +245,14 @@ Base.:(*)(J::UniformScaling, L::FactoredMatrix) = J.λ * L
 Base.:(*)(A::AdjOrTransFM, J::UniformScaling) = rewrap(A) * J.λ
 Base.:(*)(J::UniformScaling, A::AdjOrTransFM) = J.λ * rewrap(A)
 
+# Scalar operations on the wrappers stay factored too; without these the AbstractArray
+# fallbacks would materialize the dense matrix.
+Base.:(*)(a::Number, A::AdjOrTransFM) = a * rewrap(A)
+Base.:(*)(A::AdjOrTransFM, a::Number) = rewrap(A) * a
+Base.:(/)(A::AdjOrTransFM, a::Number) = rewrap(A) / a
+Base.:(\)(a::Number, A::AdjOrTransFM) = a \ rewrap(A)
+Base.:(-)(A::AdjOrTransFM) = -rewrap(A)
+
 #=== least squares ===#
 
 """
@@ -254,7 +262,7 @@ Solve `L * x = b` in the least-squares sense, returning the minimum-norm least-s
 (pseudoinverse) solution. Goes through `svd(L)`, which exploits the factors, so the
 dense matrix is never materialized. Rank deficiency — including factors with dependent
 columns, as routinely produced by the lazy `+` and `-` — is handled with the same
-relative singular-value cutoff as LinearAlgebra's SVD solve.
+dimension-scaled relative singular-value cutoff as `pinv`.
 """
 Base.:(\)(L::FactoredMatrix, b::AbstractVecOrMat) = _lssolve(L, b)
 
@@ -270,12 +278,13 @@ function _lssolve(L::FactoredMatrix, b::AbstractVecOrMat)
         throw(DimensionMismatch("matrix has $(size(L, 1)) rows, right-hand side has $(size(b, 1))"))
     end
     F = svd(L)
-    # Zero singular values (a zero or rank-0 matrix) contribute nothing to the
-    # pseudoinverse; with k = 0 the products below yield the all-zero solution.
+    # Singular values below pinv's default dimension-scaled cutoff (in particular, exact
+    # zeros from a zero or rank-0 matrix) contribute nothing to the pseudoinverse; with
+    # k = 0 the products below yield the all-zero solution.
     if isempty(F.S) || iszero(first(F.S))
         k = 0
     else
-        k = searchsortedlast(F.S, eps(eltype(F.S)) * first(F.S); rev = true)
+        k = searchsortedlast(F.S, eps(eltype(F.S)) * minimum(size(L)) * first(F.S); rev = true)
     end
     y = view(F.U, :, 1:k)' * b
     y ./= view(F.S, 1:k)
