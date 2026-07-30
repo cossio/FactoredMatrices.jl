@@ -231,7 +231,10 @@ LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix) = sum((A.u' * B.u) .* co
 LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix) = tr(A.u' * (B * A.v))
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 
-Base.sum(::typeof(abs2), A::FactoredMatrix) = norm(A)^2
+# Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)), which keeps the exact
+# accumulation type and arithmetic of sum(abs2, Matrix(A)) — in particular it stays
+# exact for integer factors, unlike the floating-point QR route used by norm.
+Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v' * A.v)))
 
 """
     norm(A::FactoredMatrix, p = 2)

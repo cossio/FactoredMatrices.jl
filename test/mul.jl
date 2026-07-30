@@ -97,6 +97,13 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     B2 = myrand(T, 3, 8)
     Cf = FactoredMatrix(zeros(T, 15, 3), zeros(T, 8, 3)')
     @test Matrix(mul!(Cf, A2, B2)) ≈ A2 * B2
+    # mismatched storage ranks must throw instead of broadcast-expanding the factors
+    Cf2 = FactoredMatrix(zeros(T, 15, 2), zeros(T, 8, 2)')
+    @test_throws DimensionMismatch mul!(Cf2, myrand(T, 15, 1), myrand(T, 1, 8))
+    @test_throws DimensionMismatch mul!(Cf2, FactoredMatrix(myrand(T, 15, 1), myrand(T, 10, 1)'), myrand(T, 10, 8))
+    # matching u factor but mismatched v factor
+    Cf3 = FactoredMatrix(zeros(T, 15, 2), zeros(T, 9, 2)')
+    @test_throws DimensionMismatch mul!(Cf3, myrand(T, 15, 2), myrand(T, 2, 8))
 
     # Workspace: correctness and zero allocations
     ws = FactoredMatrices.Workspace(L, 5)
@@ -151,6 +158,7 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test Matrix(cfm) == Array(cfm) == M
     @test sum(abs2, cfm) ≈ sum(abs2, M)
     @test sprint(show, cfm) == "Cached" * sprint(show, L)
+    @test sprint(show, MIME("text/plain"), cfm) == sprint(show, cfm)
     @test cfm * B ≈ M * B
     @test cfm * b ≈ M * b
     A5 = myrand(T, 5, 15)

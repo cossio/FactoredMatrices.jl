@@ -244,3 +244,9 @@ for T in (Float64, ComplexF64)
     @test_throws DimensionMismatch tr(A)
 end
 @test iszero(norm(FactoredMatrix(zeros(5, 2), zeros(4, 2)')))
+
+# integer factorizations keep the exact integer accumulation of sum(abs2, Matrix(A)),
+# beyond Float64 precision (unlike the floating-point QR route used by norm)
+Ai = FactoredMatrix([134217729;;], [1;;]')
+@test sum(abs2, Ai) === 134217729^2
+@test sum(abs2, Ai) == sum(abs2, Matrix(Ai))
