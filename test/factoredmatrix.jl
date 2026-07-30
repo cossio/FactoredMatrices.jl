@@ -1,5 +1,6 @@
 using Test: @testset, @test, @test_throws, @inferred
 using LinearAlgebra: Diagonal, Factorization, Hermitian, I, LowerTriangular, Symmetric, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
+using SparseArrays: sparse, spzeros
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 # the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
@@ -325,6 +326,58 @@ for T in (Float64, ComplexF64)
     @test_throws DimensionMismatch tr(A)
 end
 @test iszero(norm(FactoredMatrix(zeros(5, 2), zeros(4, 2)')))
+
+# strongly cancelling factors: the cancellation guard must reject the Gram closed form
+# (whose reassociated sum loses all significant digits here) so that the QR fallback
+# keeps norm accurate relative to an extended-precision reference
+xcan = randn(30)
+ycan = randn(25)
+Acan = FactoredMatrix(hcat(xcan, xcan), hcat(ycan, -(1 - 2.0^-30) * ycan)')
+@test norm(Acan) ≈ Float64(norm(big.(Acan.u) * big.(Acan.v)')) rtol = 1.0e-5
+@test sum(abs2, Acan) ≈ Float64(sum(abs2, big.(Acan.u) * big.(Acan.v)')) rtol = 1.0e-4
+
+# rank-0 operands: dot is an empty (zero) sum only when the other operand is finite;
+# non-finite entries of the other operand still poison it (conj(0) * Inf = NaN), as
+# they do for the dense zero matrix
+Z0 = FactoredMatrix(zeros(1, 0), zeros(1, 0)')
+@test iszero(dot(Z0, FactoredMatrix([1.0;;], [1.0;;]')))
+@test iszero(dot(Z0, [1.0;;]))
+@test isnan(dot(Z0, FactoredMatrix([Inf;;], [1.0;;]')))
+@test isnan(dot(FactoredMatrix([Inf;;], [1.0;;]'), Z0))
+@test isnan(dot(Z0, [Inf;;]))
+@test isnan(dot([Inf;;], Z0))
+
+# sparse (or structured) factors skip products against structural zeros, so a finite
+# closed form does not prove the inputs finite: the factors must still be scanned, and
+# a non-finite entry hidden behind a structural zero (spzeros' * u is structurally
+# zero) poisons the entrywise result, as it does for dense factors
+Ssp = FactoredMatrix(sparse([Inf;;]), sparse([1.0;;])')
+Zsp = FactoredMatrix(spzeros(1, 1), sparse([1.0;;])')
+Wsp = FactoredMatrix(sparse([1.0;;]), spzeros(1, 1)')
+@test isnan(dot(Ssp, Zsp))
+@test isnan(dot(Zsp, Ssp))
+@test isnan(dot(Wsp, [Inf;;]))
+@test isnan(dot([Inf;;], Wsp))
+# finite sparse factors still use the closed forms after the scan
+@test iszero(dot(Zsp, Wsp))
+@test iszero(dot(Wsp, [5.0;;]))
+@test iszero(dot(FactoredMatrix([2.0;;], [3.0;;]'), Zsp))
+# a strided operand behind an adjoint (or transpose) wrapper counts as strided
+Aadj = FactoredMatrix(randn(3, 2), randn(4, 2)')
+Madj = randn(4, 3)
+@test dot(Aadj, Madj') ≈ dot(Matrix(Aadj), Madj')
+
+# inversely scaled finite factors underflow the Gram matrices even though the
+# represented matrix is far from zero: the underflow guard must reject the closed form
+# (here u'u flushes to zero, so s = S = 0 would pass the cancellation guard) and use
+# the QR fallback
+Aund = FactoredMatrix([1.0e-200;;], [1.0e100;;]')
+@test norm(Aund) ≈ 1.0e-100
+@test sum(abs2, Aund) ≈ 1.0e-200
+# a subnormal Gram diagonal is rejected outright
+@test norm(FactoredMatrix([1.0e-155;;], [1.0;;]')) ≈ 1.0e-155
+# normal Gram diagonals whose product term underflows to zero are rejected too
+@test norm(FactoredMatrix([1.0e-100;;], [1.0e-75;;]')) ≈ 1.0e-175
 
 # empty factorizations dot to zero (an empty sum) even with non-finite factor values,
 # and self-dots use the stable nonnegative reduction instead of the Gram form
