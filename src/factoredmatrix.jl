@@ -310,7 +310,8 @@ end
 
 Frobenius inner product `sum(conj(A[i, j]) * B[i, j])`, evaluated in closed form from
 `rank(A) × rank(B)` Gram matrices at `O((m + n) * rank(A) * rank(B))` cost, without
-materializing the dense matrices.
+materializing the dense matrices. Mixed element types are evaluated entrywise
+(`O(m * n * rank)`), preserving each operand's represented-entry arithmetic.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     T = _prodtype(eltype(A), eltype(B)) # the accumulation type of the inner product
@@ -319,14 +320,20 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
         # same represented matrix, same arithmetic: use the stable nonnegative self-dot
         return convert(T, sum(abs2, A))
+    elseif eltype(A) === eltype(B)
+        return sum((A.u' * B.u) .* conj.(A.v' * B.v))
     end
-    return sum((A.u' * B.u) .* conj.(A.v' * B.v))
+    # Mixed element types: promoting the factors would change the represented entries
+    # (each operand rounds in its own precision), so evaluate the entrywise sum.
+    return sum(dot(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
     if size(A) == size(B) && length(A) == 0
         return zero(_prodtype(eltype(A), eltype(B))) # empty sum; avoid 0 * Inf garbage
+    elseif eltype(A) === eltype(B)
+        return tr(A.u' * (B * A.v))
     end
-    return tr(A.u' * (B * A.v))
+    return sum(dot(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 

@@ -373,12 +373,15 @@ Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
 # equal factors (not just identical objects) also take the stable self-dot path
 @test dot(Afc, copy(Afc)) ≥ 0
 @test dot(Afc, copy(Afc)) == dot(Afc, Afc)
-# but only for matching element types: mixed precisions accumulate differently, so
-# ==-equal factors of different precisions must evaluate the mixed product
+# but only for matching element types: each operand's entries round in its own
+# precision, so mixed-precision dots are evaluated entrywise, matching getindex and
+# the dense mixed dot
 A32 = FactoredMatrix(Float32[4097 4096], Float32[4097 -4096]') # entry rounds to 8192f0
 A64 = FactoredMatrix(Float64[4097 4096], Float64[4097 -4096]') # entry is exactly 8193.0
 @test A32.u == A64.u && A32.v == A64.v
-@test dot(A32, A64) == 8193.0^2 # the exact mixed Gram product, not sum(abs2, A32)
+@test dot(A32, A64) == 8192.0f0 * 8193.0 == dot(Matrix(A32), Matrix(A64))
+@test dot(A32, Matrix(A64)) == dot(Matrix(A32), Matrix(A64)) # mixed dense operand too
+@test dot(Matrix(A64), A32) == dot(Matrix(A64), Matrix(A32))
 
 # non-finite factors with well-defined represented entries: norm, sum(abs2) and the
 # self-dot reduce the entries directly, since a QR of the factors would produce NaNs
