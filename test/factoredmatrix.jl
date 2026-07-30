@@ -326,6 +326,26 @@ for T in (Float64, ComplexF64)
 end
 @test iszero(norm(FactoredMatrix(zeros(5, 2), zeros(4, 2)')))
 
+# strongly cancelling factors: the cancellation guard must reject the Gram closed form
+# (whose reassociated sum loses all significant digits here) so that the QR fallback
+# keeps norm accurate relative to an extended-precision reference
+xcan = randn(30)
+ycan = randn(25)
+Acan = FactoredMatrix(hcat(xcan, xcan), hcat(ycan, -(1 - 2.0^-30) * ycan)')
+@test norm(Acan) ≈ Float64(norm(big.(Acan.u) * big.(Acan.v)')) rtol = 1.0e-5
+@test sum(abs2, Acan) ≈ Float64(sum(abs2, big.(Acan.u) * big.(Acan.v)')) rtol = 1.0e-4
+
+# rank-0 operands: dot is an empty (zero) sum only when the other operand is finite;
+# non-finite entries of the other operand still poison it (conj(0) * Inf = NaN), as
+# they do for the dense zero matrix
+Z0 = FactoredMatrix(zeros(1, 0), zeros(1, 0)')
+@test iszero(dot(Z0, FactoredMatrix([1.0;;], [1.0;;]')))
+@test iszero(dot(Z0, [1.0;;]))
+@test isnan(dot(Z0, FactoredMatrix([Inf;;], [1.0;;]')))
+@test isnan(dot(FactoredMatrix([Inf;;], [1.0;;]'), Z0))
+@test isnan(dot(Z0, [Inf;;]))
+@test isnan(dot([Inf;;], Z0))
+
 # empty factorizations dot to zero (an empty sum) even with non-finite factor values,
 # and self-dots use the stable nonnegative reduction instead of the Gram form
 E1 = FactoredMatrix(zeros(0, 1), fill(Inf, 2, 1)')

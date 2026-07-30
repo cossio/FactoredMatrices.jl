@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file. The format 
 - Three- and five-argument `mul!` methods for all combinations of `FactoredMatrix`, dense matrices and vectors — including `mul!` into a pre-allocated `FactoredMatrix` output. This makes `FactoredMatrix` usable with iterative solvers that require `mul!`.
 - `FactoredMatrices.Workspace`: pre-allocated buffers passed to `mul!` via the `cache` keyword, making repeated products allocation-free.
 - `FactoredMatrices.CachedFactoredMatrix`: bundles a `FactoredMatrix` with its `Workspace` so `*` and `mul!` use the buffers automatically.
-- Closed-form `dot` (Frobenius inner product) and `tr` from small Gram matrices, and `norm`/`sum(abs2, A)` via thin QR of the factors (stable even when the represented matrix is much smaller than its factors), all without materializing the dense matrix.
+- Closed-form `dot` (Frobenius inner product) and `tr` from small Gram matrices, and `norm`/`sum(abs2, A)` from the Gram closed form guarded against cancellation, falling back to thin QR of the factors when the guard trips — as fast as the plain closed form on generic inputs, yet stable even when the represented matrix is much smaller than its factors (e.g. `A - B` of nearly-equal matrices). All without materializing the dense matrix.
 - Lazy `+` and `-` by factor concatenation (storage ranks add up), and `-A`, `A / a`, `a \ A` scalar operations.
 - `isapprox`, comparing the *represented* matrices in the Frobenius norm, evaluated in closed form from the factors at `O((m + n) * (rank(A) + rank(B))²)` cost. (`==`, `isequal` and `hash` follow the standard field-wise `Factorization` fallback, comparing the stored factors.)
 - `size(A, d)`, `length`, and docstrings for the public API.

@@ -235,7 +235,7 @@ materializing the dense matrices. Mixed element types are evaluated entrywise
 (`O(m * n * rank)`), preserving each operand's represented-entry arithmetic.
 
 The closed form reassociates the sum, so relative accuracy degrades for strongly
-cancelling factorizations; self-inner products take the QR-stable `sum(abs2, A)` path
+cancelling factorizations; self-inner products take the stable `sum(abs2, A)` path
 instead.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
@@ -247,8 +247,22 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
         return zero(T)
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
         return convert(T, sum(abs2, A))
-    elseif eltype(A) === eltype(B) && _allfinite(A) && _allfinite(B)
-        return sum((A.u' * B.u) .* conj.(A.v' * B.v))
+    elseif eltype(A) === eltype(B)
+        if rank(A) == 0 || rank(B) == 0
+            if _allfinite(A) && _allfinite(B)
+                return zero(T)
+            end
+        else
+            # conj(dot(X, Y)) = sum(X .* conj.(Y)) without the broadcast temporaries.
+            s = conj(dot(A.u' * B.u, A.v' * B.v))
+            # With both ranks nonzero, a non-finite factor entry always leaves s
+            # non-finite (Inf * 0 = NaN and Inf - Inf = NaN, so IEEE sums and products
+            # never turn a non-finite operand into a finite result), so the factors
+            # only need scanning to tell overflow apart from non-finite inputs.
+            if isfinite(s) || _allfinite(A) && _allfinite(B)
+                return s
+            end
+        end
     end
     return sum(dot(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
@@ -256,10 +270,23 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
     if size(A) ≠ size(B)
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
     end
+    T = _prodtype(eltype(A), eltype(B))
     if length(A) == 0
-        return zero(_prodtype(eltype(A), eltype(B)))
-    elseif eltype(A) === eltype(B) && _allfinite(A) && all(isfinite, B)
-        return tr(A.u' * (B * A.v))
+        return zero(T)
+    elseif eltype(A) === eltype(B)
+        if rank(A) == 0
+            if all(isfinite, B)
+                return zero(T)
+            end
+        else
+            # dot(u, B * v) = tr(u' * (B * v)) without the O(m * rank²) outer product.
+            s = dot(A.u, B * A.v)
+            # As in the factored-factored method, a non-finite entry of A or B always
+            # leaves s non-finite when the rank is nonzero.
+            if isfinite(s) || _allfinite(A) && all(isfinite, B)
+                return s
+            end
+        end
     end
     return sum(dot(_entry(A, i, j), B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
@@ -269,8 +296,22 @@ LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 # type of sum(abs2, Matrix(A)) and stays exact for integer factors (barring overflow).
 Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v' * A.v)))
 # For floating-point factors the Gram form can catastrophically cancel (even below
-# zero) when factor columns nearly cancel; the QR-based norm is stable.
+# zero) when factor columns nearly cancel; the cancellation-guarded norm is stable.
 Base.sum(::typeof(abs2), A::FactoredMatrix{<:Union{AbstractFloat, Complex{<:AbstractFloat}}}) = norm(A)^2
+
+# Gram closed form ‖u * v'‖² = Σᵢⱼ (u'u)ᵢⱼ conj((v'v)ᵢⱼ) together with the sum of the
+# absolute values of its terms, which bounds the reassociation rounding error.
+function _gramnormsq(A::FactoredMatrix)
+    Gu = A.u' * A.u
+    Gv = A.v' * A.v
+    s = S = zero(real(eltype(Gu)))
+    for i in eachindex(Gu, Gv)
+        t = Gu[i] * conj(Gv[i])
+        s += real(t)
+        S += abs(t)
+    end
+    return s, S
+end
 
 """
     norm(A::FactoredMatrix, p = 2)
@@ -278,13 +319,25 @@ Base.sum(::typeof(abs2), A::FactoredMatrix{<:Union{AbstractFloat, Complex{<:Abst
 Frobenius norm of the represented matrix, computed from the factors at `O((m + n) * rank²)`
 cost without materializing the dense matrix. Only `p = 2` is supported.
 
-By unitary invariance `‖u * v'‖ = ‖R_u * R_v'‖` with `R_u`, `R_v` the triangular QR
-factors. Unlike the Gram form `tr((u'u)(v'v))`, this does not cancel catastrophically
-when the represented matrix is much smaller than its factors (e.g. `A - B` of two
-nearly-equal matrices), which is what makes [`isapprox`](@ref) reliable.
+The Gram closed form `‖u * v'‖² = sum((u'u) .* conj(v'v))` is used when its sum incurs
+no significant cancellation, which a guard verifies against the sum of the absolute
+values of its terms. Otherwise — when the represented matrix is much smaller than its
+factors (e.g. `A - B` of two nearly-equal matrices) — the norm is evaluated by unitary
+invariance as `‖R_u * R_v'‖` with `R_u`, `R_v` the triangular QR factors, which does
+not cancel catastrophically; this fallback is what makes [`isapprox`](@ref) reliable.
 """
 function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     p == 2 || throw(ArgumentError("only the Frobenius norm (p = 2) is supported"))
+    if eltype(A) <: Union{AbstractFloat, Complex{<:AbstractFloat}}
+        s, S = _gramnormsq(A)
+        # The rounding error of s is O((m + n + rank²) * eps * S), so s ≥ S / 4 caps
+        # the relative error of √s at the same order as the QR evaluation's. Non-finite
+        # factors always leave s or S non-finite (Gram diagonals are sums of abs2) and
+        # take the fallbacks below, like a guard failure from genuine cancellation.
+        if isfinite(S) && 4s ≥ S
+            return sqrt(s)
+        end
+    end
     if length(A) > 0 && !_allfinite(A)
         return norm(_entry(A, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
     end
