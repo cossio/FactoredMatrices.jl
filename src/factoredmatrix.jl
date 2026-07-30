@@ -16,16 +16,16 @@ and taken verbatim as the right multiplicand. Factors with different element typ
 promoted to a common element type.
 
 `FactoredMatrix <: Factorization`, so — like the standard-library `Factorization`
-types — it supports neither indexing nor iteration, and `==`, `isequal` and `hash`
-compare the stored factors field-wise (use `isapprox` to compare the represented
-matrices). The supported operations (`*`, `mul!`, `+`, `-`, `dot`, `norm`, `svd`,
-`\\`, ...) exploit the factors and never materialize the dense `m × n` matrix.
+types — it supports neither indexing nor iteration, and `==` compares the stored
+factors field-wise (use `isapprox` to compare the represented matrices). The
+supported operations (`*`, `mul!`, `+`, `-`, `dot`, `norm`, `svd`, `\\`, ...)
+exploit the factors and never materialize the dense `m × n` matrix.
 
 The factors are stored (not copied) in the fields `u` (`m × r`) and `v` (`n × r`).
 """
 struct FactoredMatrix{T, U, V} <: Factorization{T}
-    u::U # m × r matrix
-    v::V # n × r matrix; the represented matrix is u * v'
+    u::U
+    v::V
     function FactoredMatrix{T, U, V}(u::U, v::V) where {T, U <: AbstractMatrix{T}, V <: AbstractMatrix{T}}
         if size(u, 2) ≠ size(v, 2)
             throw(ArgumentError("u and v must have same number of columns"))
@@ -47,9 +47,6 @@ _colform(x::AbstractVector) = reshape(x, :, 1)
 FactoredMatrix(u::AbstractVecOrMat, vt::Adjoint{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), _colform(parent(vt)))
 FactoredMatrix(u::AbstractVecOrMat, vt::Transpose{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), conj(_colform(parent(vt))))
 
-# Types whose adjoint is eager (adjoint(::Diagonal) is a Diagonal, not an Adjoint
-# wrapper), so the wrapper convention cannot apply; the second argument is taken
-# verbatim as the right multiplicand: the represented matrix is `u * X`.
 const EagerAdjointFactor = Union{
     Bidiagonal, Diagonal, Hermitian, LowerTriangular, SymTridiagonal, Symmetric{<:Real},
     Tridiagonal, UnitLowerTriangular, UnitUpperTriangular, UpperTriangular,
@@ -81,19 +78,12 @@ upper bound of (not necessarily equal to) the numerical rank of the represented 
 """
 LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 
-# Internal O(rank) entry accessor, backing the entrywise fallbacks of isapprox,
-# iszero, norm and dot. Deliberately not getindex: like the standard-library
-# Factorization types, FactoredMatrix exposes no indexing API.
+# O(rank) entry accessor; deliberately not getindex, since FactoredMatrix (like the
+# standard-library Factorization types) exposes no indexing API.
 _entry(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
-# Non-finite factor entries can corrupt reassociated closed forms (0 * Inf = NaN from
-# dormant factor pairs, NaN contamination in QR) even when the represented entries are
-# well-defined; norm and dot fall back to entrywise evaluation in that case.
 _allfinite(L::FactoredMatrix) = all(isfinite, L.u) && all(isfinite, L.v)
 
-# Fast path: a zero factor with a finite cofactor gives an exactly zero product
-# (0 * Inf = NaN). Nonzero factors can still cancel (e.g. A - A), so otherwise check
-# the represented entries, short-circuiting at the first nonzero one.
 function Base.iszero(L::FactoredMatrix)
     if iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
         return true
@@ -113,13 +103,7 @@ Base.show(io::IO, ::MIME"text/plain", L::FactoredMatrix) = show(io, L)
 
 #=== approximate equality ===#
 
-# ==, isequal and hash are the standard field-wise Factorization fallbacks from
-# LinearAlgebra (comparing the stored factors); isapprox compares the represented
-# matrices.
-
-# Default rtol with Base.rtoldefault's semantics (the larger of the per-eltype
-# defaults, e.g. √eps(Float32) for a Float32/Float64 comparison; 0 for integers),
-# so the default matches dense isapprox exactly.
+# Default rtol with Base.rtoldefault's semantics, so the default matches dense isapprox.
 _rtoldefault(::Type{T}) where {T <: Real} = T <: AbstractFloat ? √eps(T) : 0
 _rtoldefault(A, B, atol) = iszero(atol) ? max(_rtoldefault(real(eltype(A))), _rtoldefault(real(eltype(B)))) : 0
 
@@ -141,9 +125,6 @@ function Base.isapprox(
     if size(A) ≠ size(B)
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
     end
-    # Mixed element types: promoting the factors (as A - B would) can erase overflow
-    # in the narrower operand's entries, so evaluate the distance from the represented
-    # entries in each operand's own arithmetic, like dot.
     d = if eltype(A) === eltype(B) || length(A) == 0
         norm(A - B)
     else
@@ -152,16 +133,12 @@ function Base.isapprox(
     if isfinite(d)
         return d ≤ max(atol, rtol * max(norm(A), norm(B)))
     else
-        # entrywise fallback, matching isapprox for AbstractArray
         return all(isapprox(_entry(A, i, j), _entry(B, i, j); atol, rtol, nans) for i in axes(A.u, 1), j in axes(A.v, 1))
     end
 end
 
 #=== scalar multiples and low-rank sums ===#
 
-# Scalars are folded into one factor. For non-finite scalars the represented entries
-# can differ from dense entrywise scaling (0 * Inf = NaN from dormant factor terms);
-# this is inherent to the factored form.
 Base.:(*)(a::Number, L::FactoredMatrix) = _FactoredMatrix(a * L.u, L.v)
 Base.:(*)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, conj(a) * L.v) # u * v' * a = u * (conj(a) * v)'
 Base.:(/)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, L.v / conj(a))
@@ -182,14 +159,10 @@ Base.:(-)(A::FactoredMatrix, B::FactoredMatrix) = _FactoredMatrix([A.u B.u], [A.
 
 #=== products (allocating, structure-preserving) ===#
 
-# The product of two factored matrices keeps the smaller rank: u_L (v_L' u_M) v_M' is
-# absorbed into one factor pair. Products over an empty contracted dimension are exactly
-# zero; the unused (possibly non-finite) factors are replaced by zeros so that
-# 0 * Inf = NaN cannot leak into the result.
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
     if size(L.v, 1) == size(M.u, 1) == 0
         r = min(rank(L), rank(M))
-        T = _prodtype(eltype(L), eltype(M)) # the accumulation type, like the nonempty branches
+        T = _prodtype(eltype(L), eltype(M))
         return _FactoredMatrix(zeros(T, size(L.u, 1), r), zeros(T, size(M.v, 1), r))
     elseif rank(L) ≤ rank(M)
         return _FactoredMatrix(copy(L.u), M.v * (M.u' * L.v))
@@ -219,7 +192,6 @@ end
 # generic matrix method above would return a 1 × n FactoredMatrix instead).
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, L::FactoredMatrix) = transpose(transpose(L) * parent(x))
 
-# UniformScaling products reduce to scalar multiplication.
 Base.:(*)(L::FactoredMatrix, J::UniformScaling) = L * J.λ
 Base.:(*)(J::UniformScaling, L::FactoredMatrix) = J.λ * L
 
@@ -245,8 +217,6 @@ function _lssolve(L::FactoredMatrix, b::AbstractVecOrMat)
         throw(DimensionMismatch("matrix has $(size(L, 1)) rows, right-hand side has $(size(b, 1))"))
     end
     F = svd(L)
-    # Singular values at or below pinv's cutoff contribute nothing; with k = 0 (e.g.
-    # empty or all-zero S, where tol == 0) the products below yield the zero solution.
     tol = eps(eltype(F.S)) * minimum(size(L)) * (isempty(F.S) ? zero(eltype(F.S)) : first(F.S))
     k = count(>(tol), F.S)
     y = view(F.U, :, 1:k)' * b
@@ -272,17 +242,14 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     if size(A) ≠ size(B)
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
     end
-    T = _prodtype(eltype(A), eltype(B)) # the accumulation type of the inner product
+    T = _prodtype(eltype(A), eltype(B))
     if length(A) == 0
-        return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
+        return zero(T)
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
-        # same represented matrix, same arithmetic: use the stable nonnegative self-dot
         return convert(T, sum(abs2, A))
     elseif eltype(A) === eltype(B) && _allfinite(A) && _allfinite(B)
         return sum((A.u' * B.u) .* conj.(A.v' * B.v))
     end
-    # Entrywise fallback: mixed element types (promoting the factors would change the
-    # represented entries) or non-finite factors (the Gram form could manufacture NaN).
     return sum(dot(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
@@ -290,7 +257,7 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
     end
     if length(A) == 0
-        return zero(_prodtype(eltype(A), eltype(B))) # empty sum; avoid 0 * Inf garbage
+        return zero(_prodtype(eltype(A), eltype(B)))
     elseif eltype(A) === eltype(B) && _allfinite(A) && all(isfinite, B)
         return tr(A.u' * (B * A.v))
     end

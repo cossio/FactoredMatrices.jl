@@ -33,15 +33,12 @@ Workspace(L::FactoredMatrix{T}, p::Integer) where {T} = Workspace{_prodtype(T, T
 
 const MaybeWorkspace = Union{Workspace, Nothing}
 
-# Element type of a matrix product with operand element types T and S. Products
-# accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
+# Products accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
 _prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T) * zero(S))
 
 # Small intermediates, written into the workspace buffers when a cache is provided.
 # The buffer is used only when its element type is exactly the intermediate's natural
-# type (narrower could not hold the values; wider would silently change the downstream
-# arithmetic); any mismatch falls back to allocating, so a cache never changes results.
-# The branches are resolved at compile time.
+# type; any mismatch falls back to allocating, so a cache never changes results.
 _lbuf(::Nothing, L::FactoredMatrix, B) = L.v' * B
 function _lbuf(ws::Workspace{T}, L::FactoredMatrix, B::AbstractMatrix) where {T}
     if T === _prodtype(eltype(L), eltype(B))
@@ -68,9 +65,8 @@ end
 
 #=== mul! into a dense output ===#
 
-# When the contracted dimension is empty the product is exactly zero even if unused
-# factor entries are Inf/NaN (0 * Inf = NaN). Passing α = false makes mul! scale C by β
-# without referencing the factors (a BLAS-level guarantee), keeping the shape checks.
+# When the contracted dimension is empty the product is exactly zero; α = false makes
+# mul! scale C by β without referencing the (possibly non-finite) factors.
 
 # C = α * L * B + β * C = α * u * (v' * B) + β * C
 Base.@inline function _mul!(C::AbstractVecOrMat, L::FactoredMatrix, B::AbstractVecOrMat, α::Number, β::Number, cache::MaybeWorkspace)
@@ -106,9 +102,8 @@ end
 #=== mul! into a FactoredMatrix output (3-arg only; β * C is not representable) ===#
 
 # Verbatim factor copy with a strict shape check (broadcasting `.=` would silently
-# expand singleton dimensions). With `zero_it` the destination is zero-filled instead:
-# an empty contracted dimension makes the product exactly zero, and copying the unused
-# (possibly non-finite) factor would corrupt it with 0 * Inf entries.
+# expand singleton dimensions); with `zero_it` the destination is zero-filled instead
+# (used when an empty contracted dimension makes the product exactly zero).
 function _copyfactor!(dst::AbstractMatrix, src::AbstractMatrix, zero_it::Bool = false)
     if size(dst) ≠ size(src)
         throw(DimensionMismatch("output factor has size $(size(dst)), expected $(size(src))"))
@@ -116,12 +111,9 @@ function _copyfactor!(dst::AbstractMatrix, src::AbstractMatrix, zero_it::Bool = 
     return zero_it ? fill!(dst, zero(eltype(dst))) : copyto!(dst, src)
 end
 
-# One factor of the product is copied verbatim, the other absorbs t = v_L' * u_M; which
-# one depends on whether C was allocated with the rank of L or of M. Allocation-free
-# when a cache is provided.
 function _fmul!(C::FactoredMatrix, L::FactoredMatrix, M::FactoredMatrix, cache::MaybeWorkspace)
     t = _lbuf(cache, L, M.u)
-    if size(L.v, 1) == 0 # exactly zero product; avoid 0 * Inf from unused factor values
+    if size(L.v, 1) == 0
         if size(C.u, 1) ≠ size(L.u, 1) || size(C.v, 1) ≠ size(M.v, 1)
             throw(DimensionMismatch("C has size $(size(C)), expected $((size(L.u, 1), size(M.v, 1)))"))
         end
@@ -223,12 +215,10 @@ end
 
 CachedFactoredMatrix(M::FactoredMatrix, p::Integer) = CachedFactoredMatrix(M, Workspace(M, p))
 
-# The adjoint/transpose share the buffers: the rank (hence intermediate sizes) is unchanged.
 Base.adjoint(C::CachedFactoredMatrix) = CachedFactoredMatrix(adjoint(C.M), C.ws)
 Base.transpose(C::CachedFactoredMatrix) = CachedFactoredMatrix(transpose(C.M), C.ws)
 
-# Scalar and UniformScaling products forward to the wrapped matrix, keeping the bundled
-# buffers (simply left unused if a later product's intermediates no longer fit them).
+# The bundled buffers are kept; they simply go unused if a later product's intermediates no longer fit.
 Base.:(*)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a * C.M, C.ws)
 Base.:(*)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M * a, C.ws)
 Base.:(/)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M / a, C.ws)
@@ -236,7 +226,7 @@ Base.:(\)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a \ C.M, C.
 Base.:(*)(C::CachedFactoredMatrix, J::UniformScaling) = CachedFactoredMatrix(C.M * J.λ, C.ws)
 Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.λ * C.M, C.ws)
 Base.:(+)(C::CachedFactoredMatrix) = C
-Base.:(-)(C::CachedFactoredMatrix) = CachedFactoredMatrix(-C.M, C.ws) # rank unchanged, buffers still fit
+Base.:(-)(C::CachedFactoredMatrix) = CachedFactoredMatrix(-C.M, C.ws)
 
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)
@@ -247,8 +237,8 @@ Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
-# The bundled buffers are handed to _lbuf/_rbuf only when their shape fits the
-# operation; the element-type match is decided inside _lbuf/_rbuf.
+# The buffers are handed to _lbuf/_rbuf only when their shape fits; the element-type
+# match is decided there.
 _pdim(B::AbstractMatrix) = size(B, 2)
 _pdim(B::FactoredMatrix) = rank(B)
 
@@ -283,7 +273,6 @@ Base.@inline function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B
     return _mul!(C, A, B.M, α, β, _right_cache(B, A))
 end
 
-# Factored operands are supported like on a plain FactoredMatrix.
 LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::FactoredMatrix) = _mul!(C, A.M, B, true, false, _left_cache(A, B))
 LinearAlgebra.mul!(C::FactoredMatrix, A::CachedFactoredMatrix, B::FactoredMatrix) = _fmul!(C, A.M, B, _left_cache(A, B))
 LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::FactoredMatrix, α::Number, β::Number) = _mul!(C, A.M, B, α, β, _left_cache(A, B))
@@ -296,13 +285,10 @@ function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::Cache
     return _mul!(C, A.M, B.M, α, β, _left_cache(A, B.M))
 end
 
-# Products with factored operands stay factored; no large intermediates, no buffers needed.
 Base.:(*)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M * B
 Base.:(*)(A::FactoredMatrix, B::CachedFactoredMatrix) = A * B.M
 Base.:(*)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M * B.M
 
-# Allocating products with dense operands: the output has the element type of the
-# ordinary matrix product; the intermediates use the buffers whenever they fit.
 function Base.:(*)(A::CachedFactoredMatrix{T}, B::AbstractMatrix) where {T}
     S = _prodtype(T, eltype(B))
     return _mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A.M, B, true, false, _left_cache(A, B))
@@ -317,6 +303,6 @@ function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
 end
 
 # Row-vector left operands keep their row-vector result shape (the generic matrix
-# method above would return a 1 × n Matrix); the intermediate is rank-sized anyway.
+# method above would return a 1 × n Matrix).
 Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M
