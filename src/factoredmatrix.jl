@@ -281,6 +281,15 @@ Base.:(/)(A::AdjOrTransFM, a::Number) = rewrap(A) / a
 Base.:(\)(a::Number, A::AdjOrTransFM) = a \ rewrap(A)
 Base.:(-)(A::AdjOrTransFM) = -rewrap(A)
 
+# Lazy sums and differences of the wrappers stay factored as well; the AbstractArray
+# fallbacks error on the wrappers (no linear indexing) or would materialize.
+Base.:(+)(A::AdjOrTransFM, B::AdjOrTransFM) = rewrap(A) + rewrap(B)
+Base.:(+)(A::AdjOrTransFM, B::FactoredMatrix) = rewrap(A) + B
+Base.:(+)(A::FactoredMatrix, B::AdjOrTransFM) = A + rewrap(B)
+Base.:(-)(A::AdjOrTransFM, B::AdjOrTransFM) = rewrap(A) - rewrap(B)
+Base.:(-)(A::AdjOrTransFM, B::FactoredMatrix) = rewrap(A) - B
+Base.:(-)(A::FactoredMatrix, B::AdjOrTransFM) = A - rewrap(B)
+
 #=== least squares ===#
 
 """

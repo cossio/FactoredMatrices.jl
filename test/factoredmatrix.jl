@@ -138,6 +138,29 @@ A = FactoredMatrix(randn(6, 2), randn(5, 2)')
 @test Matrix(Adjoint(A) * (2I)) ≈ 2 * Matrix(A)'
 @test Matrix((2I) * Transpose(A)) ≈ 2 * transpose(Matrix(A))
 
+# structured products with explicit wrappers dispatch cleanly (no ambiguity against
+# LinearAlgebra's Diagonal/triangular methods) and stay factored
+Asw = FactoredMatrix(randn(6, 2), randn(5, 2)') # Adjoint(Asw) is 5 × 6
+D5w = Diagonal(randn(5))
+D6w = Diagonal(randn(6))
+@test D5w * Adjoint(Asw) isa FactoredMatrix
+@test Matrix(D5w * Adjoint(Asw)) ≈ D5w * Matrix(Asw)'
+@test Matrix(Adjoint(Asw) * D6w) ≈ Matrix(Asw)' * D6w
+@test Matrix(UpperTriangular(ones(5, 5)) * Transpose(Asw)) ≈ UpperTriangular(ones(5, 5)) * transpose(Matrix(Asw))
+@test Matrix(Transpose(Asw) * UpperTriangular(ones(6, 6))) ≈ transpose(Matrix(Asw)) * UpperTriangular(ones(6, 6))
+
+# lazy sums and differences of explicit wrappers stay factored
+Bsw = FactoredMatrix(randn(ComplexF64, 5, 3), randn(ComplexF64, 6, 3)') # 5 × 6
+Csw = FactoredMatrix(randn(ComplexF64, 6, 1), randn(ComplexF64, 5, 1)') # 6 × 5
+Aswc = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
+@test Adjoint(Aswc) + Adjoint(Aswc) isa FactoredMatrix
+@test Matrix(Adjoint(Aswc) + Adjoint(Aswc)) ≈ 2 * Matrix(Aswc)'
+@test Matrix(Adjoint(Aswc) - Transpose(Csw)) ≈ Matrix(Aswc)' - transpose(Matrix(Csw))
+@test Matrix(Adjoint(Aswc) + Bsw) ≈ Matrix(Aswc)' + Matrix(Bsw)
+@test Matrix(Adjoint(Aswc) - Bsw) ≈ Matrix(Aswc)' - Matrix(Bsw)
+@test Matrix(Bsw + Transpose(Csw)) ≈ Matrix(Bsw) + transpose(Matrix(Csw))
+@test Matrix(Bsw - Adjoint(Aswc)) ≈ Matrix(Bsw) - Matrix(Aswc)'
+
 # scalar operations on explicit wrappers stay factored instead of materializing
 Aw = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
 Mw = Matrix(Aw)
