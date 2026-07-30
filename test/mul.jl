@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws
-using LinearAlgebra: Adjoint, Transpose, mul!, rank
+using LinearAlgebra: Adjoint, I, Transpose, mul!, rank
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 myrand(::Type{T}, dims::Integer...) where {T <: Real} = rand(T, dims...)
@@ -292,8 +292,20 @@ y5 = zeros(5)
 @test Matrix(cfm * 3) ≈ 3 * Matrix(L)
 @test Matrix(cfm / 2) ≈ Matrix(L) / 2
 @test Matrix(2 \ cfm) ≈ Matrix(L) / 2
-@test (1 + im) * cfm isa FactoredMatrix # a promoting scalar drops the (real) buffers
+@test (1 + im) * cfm isa FactoredMatrices.CachedFactoredMatrix # buffers just go unused
 @test Matrix((1 + im) * cfm) ≈ (1 + im) * Matrix(L)
+@test cfm * I isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(cfm * I) ≈ Matrix(L)
+@test Matrix(I * cfm) ≈ Matrix(L)
+@test Matrix(cfm * (2I)) ≈ 2 * Matrix(L)
+
+# a workspace with a wider element type than the matrix can be bundled; its buffers
+# hold the (real) intermediates of the real matrix just fine
+wsc = FactoredMatrices.Workspace{ComplexF64}(2, 4)
+cfmc = FactoredMatrices.CachedFactoredMatrix(L, wsc)
+B4 = randn(5, 4)
+@test cfmc * B4 ≈ Matrix(L) * B4
+@test eltype(cfmc * B4) == Float64
 
 # Boolean products accumulate into Int, like ordinary matrix products
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')

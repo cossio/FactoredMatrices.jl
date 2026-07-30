@@ -244,7 +244,7 @@ fit, in shape and element type; other products still work, falling back to alloc
 their intermediates. Use one `CachedFactoredMatrix` per task when multiplying
 concurrently.
 """
-struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace{T}} <: Factorization{T}
+struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace} <: Factorization{T}
     M::F
     ws::W
 end
@@ -256,15 +256,15 @@ CachedFactoredMatrix(M::FactoredMatrix, p::Integer) = CachedFactoredMatrix(M, Wo
 Base.adjoint(C::CachedFactoredMatrix) = CachedFactoredMatrix(adjoint(C.M), C.ws)
 Base.transpose(C::CachedFactoredMatrix) = CachedFactoredMatrix(transpose(C.M), C.ws)
 
-# Scalar products forward to the wrapped matrix, keeping the bundled buffers when the
-# element type is preserved (a promoting scalar returns a plain FactoredMatrix, since
-# the buffers could no longer hold the intermediates).
-_rebundle(M::FactoredMatrix{T}, ws::Workspace{T}) where {T} = CachedFactoredMatrix(M, ws)
-_rebundle(M::FactoredMatrix, ::Workspace) = M
-Base.:(*)(a::Number, C::CachedFactoredMatrix) = _rebundle(a * C.M, C.ws)
-Base.:(*)(C::CachedFactoredMatrix, a::Number) = _rebundle(C.M * a, C.ws)
-Base.:(/)(C::CachedFactoredMatrix, a::Number) = _rebundle(C.M / a, C.ws)
-Base.:(\)(a::Number, C::CachedFactoredMatrix) = _rebundle(a \ C.M, C.ws)
+# Scalar and UniformScaling products forward to the wrapped matrix, keeping the
+# bundled buffers (which are simply left unused whenever they cannot hold the
+# intermediates of a later product, e.g. after promotion by a complex scalar).
+Base.:(*)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a * C.M, C.ws)
+Base.:(*)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M * a, C.ws)
+Base.:(/)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M / a, C.ws)
+Base.:(\)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a \ C.M, C.ws)
+Base.:(*)(C::CachedFactoredMatrix, J::UniformScaling) = CachedFactoredMatrix(C.M * J.λ, C.ws)
+Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.λ * C.M, C.ws)
 
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)
@@ -284,26 +284,28 @@ _pdim(B::AbstractMatrix) = size(B, 2)
 _pdim(B::FactoredMatrix) = rank(B)
 _pdim(B::AdjOrTransFM) = rank(parent(B))
 
-function _left_cache(A::CachedFactoredMatrix{T}, B::Union{AbstractMatrix, FactoredMatrix}) where {T}
-    return _prodtype(T, eltype(B)) === T && size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
+# The bundled buffers are handed to _lbuf/_rbuf only when their shape fits the
+# operation (the Workspace carries a single outer size `p`); whether their element type
+# can hold the intermediate is decided inside _lbuf/_rbuf, which fall back to allocating.
+function _left_cache(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix})
+    return size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
 end
-function _left_cache(A::CachedFactoredMatrix{T}, b::AbstractVector) where {T}
-    ok = _prodtype(T, eltype(b)) === T && size(A.ws.left, 1) == rank(A.M) && size(A.ws.left, 2) ≥ 1
-    return ok ? A.ws : nothing
+function _left_cache(A::CachedFactoredMatrix, b::AbstractVector)
+    return size(A.ws.left, 1) == rank(A.M) && size(A.ws.left, 2) ≥ 1 ? A.ws : nothing
 end
-function _right_cache(B::CachedFactoredMatrix{T}, A::AbstractMatrix) where {T}
-    return _prodtype(T, eltype(A)) === T && size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
+function _right_cache(B::CachedFactoredMatrix, A::AbstractMatrix)
+    return size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
 end
 # For factored × cached products the FactoredMatrix × FactoredMatrix path uses the left
 # buffer, with shape rank(A) × rank(B.M). When the ranks differ, the bundled right
 # buffer may have exactly that shape instead — hand it over as the left buffer then.
-function _right_cache(B::CachedFactoredMatrix{T}, A::Union{FactoredMatrix, AdjOrTransFM}) where {T}
-    _prodtype(T, eltype(A)) === T || return nothing
+function _right_cache(B::CachedFactoredMatrix, A::Union{FactoredMatrix, AdjOrTransFM})
     shape = (rank(rewrap(A)), rank(B.M))
-    if size(B.ws.left) == shape
-        return B.ws
-    elseif size(B.ws.right) == shape
-        return Workspace{T}(B.ws.right, B.ws.left)
+    ws = B.ws
+    if size(ws.left) == shape
+        return ws
+    elseif size(ws.right) == shape
+        return Workspace{eltype(ws.left)}(ws.right, ws.left)
     else
         return nothing
     end
