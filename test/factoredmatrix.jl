@@ -1,6 +1,6 @@
 using Test: @testset, @test, @test_throws, @inferred
 using LinearAlgebra: Adjoint, Diagonal, Factorization, Hermitian, I, LowerTriangular, Transpose, UpperTriangular, dot, norm, pinv, rank, tr
-using FactoredMatrices: FactoredMatrix
+using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 # the constructor requires the second factor adjointed: FactoredMatrix(u, v') is u * v'
 @test_throws ArgumentError FactoredMatrix(randn(5, 2), randn(4, 2))
@@ -51,17 +51,17 @@ A = @inferred FactoredMatrix(randn(Float32, 5, 2), randn(Float64, 4, 2)')
 @test eltype(A) == Float64
 @test A.u isa Matrix{Float64} && A.v isa Matrix{Float64}
 
-# size, length, rank, getindex
+# size, length, rank; like stdlib Factorization types, indexing is not public API
 A = FactoredMatrix(randn(20, 4), randn(12, 4)')
 @test size(A) == (20, 12)
 @test size(A, 1) == 20 && size(A, 2) == 12 && size(A, 3) == 1
 @test_throws ArgumentError size(A, 0)
 @test length(A) == 20 * 12
 @test rank(A) == 4
+@test_throws MethodError A[1, 1]
 M = Matrix(A)
-@test all(A[i, j] ≈ M[i, j] for i in 1:20, j in 1:12)
-@test_throws BoundsError A[0, 1]
-@test_throws BoundsError A[1, 13]
+# the internal O(rank) entry accessor backs ==, isapprox, iszero, hash, ...
+@test all(FactoredMatrices._entry(A, i, j) ≈ M[i, j] for i in 1:20, j in 1:12)
 
 # iszero
 @test iszero(Matrix(FactoredMatrix(zeros(10, 3), zeros(5, 3)')))
@@ -374,14 +374,17 @@ Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
 @test dot(Afc, copy(Afc)) ≥ 0
 @test dot(Afc, copy(Afc)) == dot(Afc, Afc)
 # but only for matching element types: each operand's entries round in its own
-# precision, so mixed-precision dots are evaluated entrywise, matching getindex and
-# the dense mixed dot
+# precision, so mixed-precision dots are evaluated entrywise, matching the dense
+# mixed dot
 A32 = FactoredMatrix(Float32[4097 4096], Float32[4097 -4096]') # entry rounds to 8192f0
 A64 = FactoredMatrix(Float64[4097 4096], Float64[4097 -4096]') # entry is exactly 8193.0
 @test A32.u == A64.u && A32.v == A64.v
 @test dot(A32, A64) == 8192.0f0 * 8193.0 == dot(Matrix(A32), Matrix(A64))
 @test dot(A32, Matrix(A64)) == dot(Matrix(A32), Matrix(A64)) # mixed dense operand too
 @test dot(Matrix(A64), A32) == dot(Matrix(A64), Matrix(A32))
+# mismatched shapes throw instead of silently indexing into the larger operand
+@test_throws DimensionMismatch dot(A32, FactoredMatrix(randn(2, 1), randn(2, 1)'))
+@test_throws DimensionMismatch dot(A32, randn(2, 2))
 
 # non-finite factors with well-defined represented entries: norm, sum(abs2) and the
 # self-dot reduce the entries directly, since a QR of the factors would produce NaNs

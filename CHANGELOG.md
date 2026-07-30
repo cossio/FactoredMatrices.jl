@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Breaking
 
-- `FactoredMatrix` is now a `Factorization` instead of an `AbstractMatrix`. It never supported `getindex`-based iteration anyway, so the `AbstractMatrix` generic fallbacks (printing, `==`, reductions, broadcasting) either errored or would have been silently `O(m * n * rank)`; subtyping `Factorization` makes the multiplication-oriented contract explicit. Single entries can still be read with `A[i, j]` at `O(rank)` cost.
+- `FactoredMatrix` is now a `Factorization` instead of an `AbstractMatrix`. It never supported `getindex`-based iteration anyway, so the `AbstractMatrix` generic fallbacks (printing, `==`, reductions, broadcasting) either errored or would have been silently `O(m * n * rank)`; subtyping `Factorization` makes the multiplication-oriented contract explicit. Like the standard-library `Factorization` types, entry indexing is not provided.
 - The constructor now requires the second factor to be passed adjointed (or transposed), so the call reads as the product it represents: `FactoredMatrix(u, v')` is the matrix `u * v'`. Passing two plain matrices throws an `ArgumentError` explaining this. (Suggested by Tim Holy.) Structured matrices whose adjoint is computed eagerly rather than as an `Adjoint` wrapper (`Diagonal`, `Hermitian`, triangular, ...) are accepted directly as the second argument and taken verbatim as the right multiplicand.
 - `FactoredMatrix` is now exported.
 
@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file. The format 
 - Closed-form `dot` (Frobenius inner product) and `tr` from small Gram matrices, and `norm`/`sum(abs2, A)` via thin QR of the factors (stable even when the represented matrix is much smaller than its factors), all without materializing the dense matrix.
 - Lazy `+` and `-` by factor concatenation (storage ranks add up), and `-A`, `A / a`, `a \ A` scalar operations.
 - `==`, `isequal`, `isapprox` and `hash`. Equality compares the *represented* matrices: `==` entrywise without materializing (`O(1)` memory), `isequal` with dense-array NaN semantics (so factorizations with NaN entries work as hashed-collection keys), `isapprox` in the Frobenius norm evaluated in closed form from the factors at `O((m + n) * (rank(A) + rank(B))²)` cost.
-- `getindex` for single entries, `size(A, d)`, `length`, and docstrings for the public API.
+- `size(A, d)`, `length`, and docstrings for the public API.
 - `FactoredMatrix` factors with different element types are now promoted to a common element type. In particular, multiplication by a type-promoting scalar (e.g. `(1 + im) * A` for a real `A`) now works instead of throwing a `MethodError`.
 
 ### Changed

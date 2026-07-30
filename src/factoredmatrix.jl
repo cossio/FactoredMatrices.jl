@@ -15,10 +15,10 @@ whose adjoint is eager (`Diagonal`, `Hermitian`, triangular, ...) are accepted d
 and taken verbatim as the right multiplicand. Factors with different element types are
 promoted to a common element type.
 
-`FactoredMatrix <: Factorization`, so it does not support iteration or the generic
-`AbstractMatrix` fallbacks. The supported operations (`*`, `mul!`, `+`, `-`, `dot`,
-`norm`, `svd`, `\\`, ...) exploit the factors and never materialize the dense `m × n`
-matrix. Single entries can be read with `A[i, j]` at `O(r)` cost.
+`FactoredMatrix <: Factorization`, so — like the standard-library `Factorization`
+types — it supports neither indexing nor iteration. The supported operations (`*`,
+`mul!`, `+`, `-`, `dot`, `norm`, `svd`, `\\`, ...) exploit the factors and never
+materialize the dense `m × n` matrix.
 
 The factors are stored (not copied) in the fields `u` (`m × r`) and `v` (`n × r`).
 """
@@ -80,8 +80,10 @@ upper bound of (not necessarily equal to) the numerical rank of the represented 
 """
 LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 
-# Single entries are cheap (O(rank)); full indexing semantics are deliberately absent.
-Base.getindex(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
+# Internal O(rank) entry accessor, backing the entrywise fallbacks of ==, isapprox,
+# iszero, norm, dot and hash. Deliberately not getindex: like the standard-library
+# Factorization types, FactoredMatrix exposes no indexing API.
+_entry(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
 # Fast path: a zero factor with a finite cofactor gives an exactly zero product
 # (0 * Inf = NaN). Nonzero factors can still cancel (e.g. A - A), so otherwise check
@@ -90,7 +92,7 @@ function Base.iszero(L::FactoredMatrix)
     if iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
         return true
     end
-    return all(iszero(L[i, j]) for i in axes(L.u, 1), j in axes(L.v, 1))
+    return all(iszero(_entry(L, i, j)) for i in axes(L.u, 1), j in axes(L.v, 1))
 end
 
 Base.adjoint(L::FactoredMatrix) = _FactoredMatrix(L.v, L.u)
@@ -116,14 +118,14 @@ want. There is deliberately no equal-factor shortcut: equal factors can still re
 """
 function Base.:(==)(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
-    return all(A[i, j] == B[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
+    return all(_entry(A, i, j) == _entry(B, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 
 # isequal uses dense-array semantics (NaN entries equal to themselves), so that
 # factorizations work as hashed-collection keys even with NaN entries.
 function Base.isequal(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
-    return all(isequal(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
+    return all(isequal(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 
 # Entries that are `==` must hash equally; collapse ±0.0, which hash differently.
@@ -136,7 +138,7 @@ function Base.hash(A::FactoredMatrix, h::UInt)
     h = hash(size(A), h)
     m, n = size(A)
     if m > 0 && n > 0
-        h = hash(_canonicalzero(A[1, 1]), hash(_canonicalzero(A[m, n]), h))
+        h = hash(_canonicalzero(_entry(A, 1, 1)), hash(_canonicalzero(_entry(A, m, n)), h))
     end
     return h
 end
@@ -161,7 +163,7 @@ function Base.isapprox(
         return d ≤ max(atol, rtol * max(norm(A), norm(B)))
     else
         # entrywise fallback, matching isapprox for AbstractArray
-        return all(isapprox(A[i, j], B[i, j]; atol, rtol, nans) for i in axes(A.u, 1), j in axes(A.v, 1))
+        return all(isapprox(_entry(A, i, j), _entry(B, i, j); atol, rtol, nans) for i in axes(A.u, 1), j in axes(A.v, 1))
     end
 end
 
@@ -314,8 +316,11 @@ materializing the dense matrices. Mixed element types are evaluated entrywise
 (`O(m * n * rank)`), preserving each operand's represented-entry arithmetic.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
+    if size(A) ≠ size(B)
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
+    end
     T = _prodtype(eltype(A), eltype(B)) # the accumulation type of the inner product
-    if size(A) == size(B) && length(A) == 0
+    if length(A) == 0
         return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
         # same represented matrix, same arithmetic: use the stable nonnegative self-dot
@@ -325,15 +330,18 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     end
     # Mixed element types: promoting the factors would change the represented entries
     # (each operand rounds in its own precision), so evaluate the entrywise sum.
-    return sum(dot(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
+    return sum(dot(_entry(A, i, j), _entry(B, i, j)) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
-    if size(A) == size(B) && length(A) == 0
+    if size(A) ≠ size(B)
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B))"))
+    end
+    if length(A) == 0
         return zero(_prodtype(eltype(A), eltype(B))) # empty sum; avoid 0 * Inf garbage
     elseif eltype(A) === eltype(B)
         return tr(A.u' * (B * A.v))
     end
-    return sum(dot(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
+    return sum(dot(_entry(A, i, j), B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 
@@ -360,7 +368,7 @@ function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     if length(A) > 0 && !(all(isfinite, A.u) && all(isfinite, A.v))
         # a QR of non-finite factors would contaminate R with NaNs even when the
         # represented entries are well-defined; reduce the entries directly instead
-        return norm(A[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
+        return norm(_entry(A, i, j) for i in axes(A.u, 1), j in axes(A.v, 1))
     end
     return norm(qr(A.u).R * qr(A.v).R')
 end

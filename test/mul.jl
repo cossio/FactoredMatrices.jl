@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws
-using LinearAlgebra: Adjoint, I, Transpose, dot, mul!, norm, pinv, rank, svd, tr
+using LinearAlgebra: Adjoint, I, Transpose, mul!, norm, rank
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 myrand(::Type{T}, dims::Integer...) where {T <: Real} = rand(T, dims...)
@@ -155,9 +155,8 @@ for T in (Float32, Float64, ComplexF32, ComplexF64)
     @test length(cfm) == length(L)
     @test rank(cfm) == rank(L)
     @test eltype(cfm) == T
-    @test cfm[2, 3] == L[2, 3]
+    @test_throws MethodError cfm[2, 3]
     @test Matrix(cfm) == Array(cfm) == M
-    @test sum(abs2, cfm) ≈ sum(abs2, M)
     @test sprint(show, cfm) == "Cached" * sprint(show, L)
     @test sprint(show, MIME("text/plain"), cfm) == sprint(show, cfm)
     @test cfm * B ≈ M * B
@@ -288,33 +287,21 @@ y5 = zeros(5)
 @test mul!(y5, cfm', x6) ≈ Matrix(L)' * x6
 
 # scalar products forward, keeping the buffers when the element type is preserved
-@test 2 * cfm isa FactoredMatrices.CachedFactoredMatrix
-@test Matrix(2 * cfm) ≈ 2 * Matrix(L)
-@test Matrix(cfm * 3) ≈ 3 * Matrix(L)
-@test Matrix(cfm / 2) ≈ Matrix(L) / 2
-@test Matrix(2 \ cfm) ≈ Matrix(L) / 2
-@test (1 + im) * cfm isa FactoredMatrices.CachedFactoredMatrix # buffers just go unused
-@test Matrix((1 + im) * cfm) ≈ (1 + im) * Matrix(L)
-@test cfm * I isa FactoredMatrices.CachedFactoredMatrix
-@test Matrix(cfm * I) ≈ Matrix(L)
-@test Matrix(I * cfm) ≈ Matrix(L)
-@test Matrix(cfm * (2I)) ≈ 2 * Matrix(L)
-
-# norm and least-squares solves forward to the wrapped factorization
-@test norm(cfm) ≈ norm(Matrix(L))
-@test cfm \ x6 ≈ pinv(Matrix(L)) * x6
-@test cfm \ ((1 + im) * x6) ≈ pinv(Matrix(L)) * ((1 + im) * x6)
-
-# svd, dot and tr forward to the wrapped factorization
-@test svd(cfm).S == svd(L).S
 M65 = Matrix(L)
-@test dot(cfm, cfm) ≈ dot(M65, M65)
-@test dot(cfm, L) ≈ dot(M65, M65)
-@test dot(L, cfm) ≈ dot(M65, M65)
-@test dot(cfm, M65) ≈ dot(M65, M65)
-@test dot(M65, cfm) ≈ dot(M65, M65)
-Lsq = FactoredMatrix(randn(5, 2), randn(5, 2)')
-@test tr(FactoredMatrices.CachedFactoredMatrix(Lsq, 2)) ≈ tr(Matrix(Lsq))
+@test 2 * cfm isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(2 * cfm) ≈ 2 * M65
+@test Matrix(cfm * 3) ≈ 3 * M65
+@test Matrix(cfm / 2) ≈ M65 / 2
+@test Matrix(2 \ cfm) ≈ M65 / 2
+@test (1 + im) * cfm isa FactoredMatrices.CachedFactoredMatrix # buffers just go unused
+@test Matrix((1 + im) * cfm) ≈ (1 + im) * M65
+@test +cfm === cfm
+@test -cfm isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(-cfm) ≈ -M65
+@test cfm * I isa FactoredMatrices.CachedFactoredMatrix
+@test Matrix(cfm * I) ≈ M65
+@test Matrix(I * cfm) ≈ M65
+@test Matrix(cfm * (2I)) ≈ 2 * M65
 
 # row-vector products keep their row-vector shape through the cache
 @test x6' * cfm isa Adjoint{<:Any, <:AbstractVector}
@@ -322,48 +309,10 @@ Lsq = FactoredMatrix(randn(5, 2), randn(5, 2)')
 @test transpose(x6) * cfm isa Transpose{<:Any, <:AbstractVector}
 @test transpose(x6) * cfm ≈ transpose(x6) * M65
 
-# iszero forwards to the wrapped factorization
-@test !iszero(cfm)
-@test iszero(FactoredMatrices.CachedFactoredMatrix(FactoredMatrix(zeros(3, 1), zeros(2, 1)'), 1))
-
-# comparisons forward to the wrapped factorization, ignoring the workspace
-cfmB = FactoredMatrices.CachedFactoredMatrix(copy(L), 3)
-@test cfm == cfmB
-@test isequal(cfm, cfmB)
-@test hash(cfm) == hash(cfmB)
-@test cfm ≈ cfmB
-@test cfm == L
-@test L == cfm
-@test isequal(cfm, L)
-@test isequal(L, cfm)
-@test cfm ≈ L
-@test L ≈ cfm
-
-# lazy sums and differences forward to the wrapped factorization
-@test cfm + cfm isa FactoredMatrix
-@test Matrix(cfm + cfm) ≈ 2 * M65
-@test Matrix(cfm + L) ≈ 2 * M65
-@test Matrix(L + cfm) ≈ 2 * M65
-@test Matrix(cfm - L) ≈ zeros(6, 5) atol = 1.0e-8
-@test Matrix(L - cfm) ≈ zeros(6, 5) atol = 1.0e-8
-@test Matrix(cfm - cfm) ≈ zeros(6, 5) atol = 1.0e-8
-Aw65 = FactoredMatrix(randn(5, 2), randn(6, 2)') # Adjoint(Aw65) is 6 × 5
-@test Matrix(cfm + Adjoint(Aw65)) ≈ M65 + Matrix(Aw65)'
-@test Matrix(Transpose(Aw65) + cfm) ≈ transpose(Matrix(Aw65)) + M65
-@test Matrix(cfm - Transpose(Aw65)) ≈ M65 - transpose(Matrix(Aw65))
-@test Matrix(Adjoint(Aw65) - cfm) ≈ Matrix(Aw65)' - M65
-@test +cfm === cfm
-@test -cfm isa FactoredMatrices.CachedFactoredMatrix
-@test Matrix(-cfm) ≈ -M65
-
-# copies duplicate the factors and get independent scratch buffers
-cfmCopy = copy(cfm)
-@test cfmCopy isa FactoredMatrices.CachedFactoredMatrix
-@test cfmCopy == cfm
-@test cfmCopy.M.u !== cfm.M.u
-@test cfmCopy.ws !== cfm.ws
-@test cfmCopy.ws.left !== cfm.ws.left
-@test size(cfmCopy.ws.left) == size(cfm.ws.left)
+# non-multiplication operations are deliberately not forwarded; unwrap with cfm.M
+@test_throws MethodError cfm + cfm
+@test_throws MethodError norm(cfm)
+@test cfm != FactoredMatrices.CachedFactoredMatrix(copy(L), 3) # identity semantics
 
 # factored destinations work with dense operands through the cache
 mfB = randn(5, 4)

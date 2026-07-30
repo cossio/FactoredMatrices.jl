@@ -237,6 +237,10 @@ products automatically use the bundled buffers as their `mul!` cache. The buffer
 only the products they fit, in shape (the `Workspace` carries a single outer size `p`)
 and element type; other products fall back to allocating. Use one `CachedFactoredMatrix`
 per task when multiplying concurrently.
+
+Only multiplication-related operations are forwarded to the wrapped matrix (`*`, `mul!`,
+`adjoint`/`transpose`, scalar and `UniformScaling` multiples); for anything else, unwrap
+with `C.M`.
 """
 struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace} <: Factorization{T}
     M::F
@@ -260,55 +264,12 @@ Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.Î
 Base.:(+)(C::CachedFactoredMatrix) = C
 Base.:(-)(C::CachedFactoredMatrix) = CachedFactoredMatrix(-C.M, C.ws) # rank unchanged, buffers still fit
 
-# Lazy sums and differences forward to the wrapped matrices, returning a plain
-# FactoredMatrix: the result's rank is the sum of the ranks, so the buffers cannot fit it.
-Base.:(+)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M + B.M
-Base.:(+)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M + B
-Base.:(+)(A::FactoredMatrix, B::CachedFactoredMatrix) = A + B.M
-Base.:(+)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M + rewrap(B)
-Base.:(+)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) + B.M
-Base.:(-)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M - B.M
-Base.:(-)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M - B
-Base.:(-)(A::FactoredMatrix, B::CachedFactoredMatrix) = A - B.M
-Base.:(-)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M - rewrap(B)
-Base.:(-)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) - B.M
-
-# Duplicated factors and fresh scratch buffers: the copy is safe for another task.
-function Base.copy(C::CachedFactoredMatrix)
-    ws = Workspace{eltype(C.ws.left)}(similar(C.ws.left), similar(C.ws.right))
-    return CachedFactoredMatrix(copy(C.M), ws)
-end
-
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)
 Base.length(C::CachedFactoredMatrix) = length(C.M)
-Base.getindex(C::CachedFactoredMatrix, i::Integer, j::Integer) = C.M[i, j]
 LinearAlgebra.rank(C::CachedFactoredMatrix) = rank(C.M)
 Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
-Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
-Base.iszero(C::CachedFactoredMatrix) = iszero(C.M)
-# Comparisons ignore the bundled workspace (scratch, not content); the mixed methods
-# make a cached matrix compare equal to its uncached counterpart.
-Base.:(==)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M == B.M
-Base.:(==)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M == B
-Base.:(==)(A::FactoredMatrix, B::CachedFactoredMatrix) = A == B.M
-Base.isequal(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = isequal(A.M, B.M)
-Base.isequal(A::CachedFactoredMatrix, B::FactoredMatrix) = isequal(A.M, B)
-Base.isequal(A::FactoredMatrix, B::CachedFactoredMatrix) = isequal(A, B.M)
-Base.hash(C::CachedFactoredMatrix, h::UInt) = hash(C.M, h)
-Base.isapprox(A::CachedFactoredMatrix, B::CachedFactoredMatrix; kwargs...) = isapprox(A.M, B.M; kwargs...)
-Base.isapprox(A::CachedFactoredMatrix, B::FactoredMatrix; kwargs...) = isapprox(A.M, B; kwargs...)
-Base.isapprox(A::FactoredMatrix, B::CachedFactoredMatrix; kwargs...) = isapprox(A, B.M; kwargs...)
-LinearAlgebra.norm(C::CachedFactoredMatrix, p::Real = 2) = norm(C.M, p)
-LinearAlgebra.svd(C::CachedFactoredMatrix) = svd(C.M)
-LinearAlgebra.tr(C::CachedFactoredMatrix) = tr(C.M)
-LinearAlgebra.dot(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = dot(A.M, B.M)
-LinearAlgebra.dot(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix}) = dot(A.M, B)
-LinearAlgebra.dot(A::Union{AbstractMatrix, FactoredMatrix}, B::CachedFactoredMatrix) = dot(A, B.M)
-Base.:(\)(C::CachedFactoredMatrix, b::AbstractVecOrMat) = C.M \ b
-# Disambiguate against LinearAlgebra's real-Factorization/complex-RHS fallback.
-Base.:(\)(C::CachedFactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = C.M \ b
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
