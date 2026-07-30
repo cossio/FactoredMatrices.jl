@@ -203,8 +203,8 @@ x = randn(12)
 @test A * x ≈ Matrix(A) * x
 y = randn(20)
 @test y' * A ≈ y' * Matrix(A)
-@test transpose(y) * A isa FactoredMatrix
-@test Matrix(transpose(y) * A) ≈ transpose(y) * Matrix(A)
+@test transpose(y) * A isa Transpose{<:Any, <:AbstractVector}
+@test transpose(y) * A ≈ transpose(y) * Matrix(A)
 
 # products with Diagonal and triangular matrices go through the generic method
 A = FactoredMatrix(randn(20, 2), randn(12, 2)')
@@ -243,7 +243,11 @@ for T in (Float64, ComplexF64)
     @test Matrix(C' * Adjoint(A)) ≈ C' * Matrix(A)'
     @test Adjoint(A) * x ≈ Matrix(A)' * x
     @test y' * Adjoint(B') ≈ y' * Matrix(B')'
-    @test Matrix(transpose(z) * Transpose(A)) ≈ transpose(z) * transpose(Matrix(A))
+    # row-vector left operands keep their row-vector shape, without spurious conjugation
+    @test transpose(x) * A isa Transpose{<:Any, <:AbstractVector}
+    @test transpose(x) * A ≈ transpose(x) * Matrix(A)
+    @test transpose(z) * Transpose(A) isa Transpose{<:Any, <:AbstractVector}
+    @test transpose(z) * Transpose(A) ≈ transpose(z) * transpose(Matrix(A))
 end
 
 # left division: square invertible case

@@ -217,6 +217,9 @@ function Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::FactoredMatrix)
     t = x * L.u # rank-sized; exactly zero when the contracted dimension is empty
     return size(L.u, 1) == 0 ? adjoint(zeros(_prodtype(eltype(x), eltype(L)), size(L.v, 1))) : t * L.v'
 end
+# xᵀ * L = (Lᵀ * x)ᵀ keeps the row-vector shape of the dense product (without this the
+# generic matrix method above would return a 1 × n FactoredMatrix instead).
+Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, L::FactoredMatrix) = transpose(transpose(L) * parent(x))
 
 # Explicit Adjoint/Transpose wrappers around a FactoredMatrix are re-wrapped into plain
 # FactoredMatrixes (adjoint/transpose of a FactoredMatrix is again a FactoredMatrix).

@@ -278,6 +278,11 @@ Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 LinearAlgebra.norm(C::CachedFactoredMatrix, p::Real = 2) = norm(C.M, p)
+LinearAlgebra.svd(C::CachedFactoredMatrix) = svd(C.M)
+LinearAlgebra.tr(C::CachedFactoredMatrix) = tr(C.M)
+LinearAlgebra.dot(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = dot(A.M, B.M)
+LinearAlgebra.dot(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix}) = dot(A.M, B)
+LinearAlgebra.dot(A::Union{AbstractMatrix, FactoredMatrix}, B::CachedFactoredMatrix) = dot(A, B.M)
 Base.:(\)(C::CachedFactoredMatrix, b::AbstractVecOrMat) = C.M \ b
 # Disambiguate against LinearAlgebra's real-Factorization/complex-RHS fallback.
 Base.:(\)(C::CachedFactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = C.M \ b
@@ -374,3 +379,9 @@ function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
     S = _prodtype(eltype(A), T)
     return _mul!(Matrix{S}(undef, size(A, 1), size(B, 2)), A, B.M, true, false, _right_cache(B, A))
 end
+
+# Row-vector left operands keep their row-vector result shape (the generic matrix
+# method above would return a 1 × n Matrix); the rank-sized intermediate makes the
+# buffers unnecessary.
+Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M
+Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M

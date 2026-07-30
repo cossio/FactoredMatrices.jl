@@ -1,5 +1,5 @@
 using Test: @testset, @test, @test_throws
-using LinearAlgebra: Adjoint, I, Transpose, mul!, norm, pinv, rank
+using LinearAlgebra: Adjoint, I, Transpose, dot, mul!, norm, pinv, rank, svd, tr
 using FactoredMatrices: FactoredMatrix, FactoredMatrices
 
 myrand(::Type{T}, dims::Integer...) where {T <: Real} = rand(T, dims...)
@@ -304,6 +304,23 @@ y5 = zeros(5)
 @test norm(cfm) ≈ norm(Matrix(L))
 @test cfm \ x6 ≈ pinv(Matrix(L)) * x6
 @test cfm \ ((1 + im) * x6) ≈ pinv(Matrix(L)) * ((1 + im) * x6)
+
+# svd, dot and tr forward to the wrapped factorization
+@test svd(cfm).S == svd(L).S
+M65 = Matrix(L)
+@test dot(cfm, cfm) ≈ dot(M65, M65)
+@test dot(cfm, L) ≈ dot(M65, M65)
+@test dot(L, cfm) ≈ dot(M65, M65)
+@test dot(cfm, M65) ≈ dot(M65, M65)
+@test dot(M65, cfm) ≈ dot(M65, M65)
+Lsq = FactoredMatrix(randn(5, 2), randn(5, 2)')
+@test tr(FactoredMatrices.CachedFactoredMatrix(Lsq, 2)) ≈ tr(Matrix(Lsq))
+
+# row-vector products keep their row-vector shape through the cache
+@test x6' * cfm isa Adjoint{<:Any, <:AbstractVector}
+@test x6' * cfm ≈ x6' * M65
+@test transpose(x6) * cfm isa Transpose{<:Any, <:AbstractVector}
+@test transpose(x6) * cfm ≈ transpose(x6) * M65
 
 # a workspace with a wider element type than the matrix can be bundled; it serves the
 # products whose intermediates are complex, while real products fall back to allocating
