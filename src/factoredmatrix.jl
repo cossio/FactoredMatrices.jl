@@ -314,6 +314,12 @@ Frobenius inner product `sum(conj(A[i, j]) * B[i, j])`, evaluated in closed form
 `rank(A) × rank(B)` Gram matrices at `O((m + n) * rank(A) * rank(B))` cost, without
 materializing the dense matrices. Mixed element types are evaluated entrywise
 (`O(m * n * rank)`), preserving each operand's represented-entry arithmetic.
+
+Like any reassociated closed form, roundoff accumulates at the scale of the factor
+products rather than of the represented entries, so relative accuracy degrades for
+strongly cancelling factorizations. Self-inner products and `norm` avoid this through
+a QR-stable evaluation; there is no equally cheap stable form for general inner
+products.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     if size(A) ≠ size(B)
