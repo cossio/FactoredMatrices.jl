@@ -84,6 +84,15 @@ _entry(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.
 
 _allfinite(L::FactoredMatrix) = all(isfinite, L.u) && all(isfinite, L.v)
 
+# Strided (dense-memory) storage computes every entry product, so IEEE arithmetic
+# propagates any non-finite entry into a product (Inf * 0 = NaN and Inf - Inf = NaN
+# never turn a non-finite operand into a finite result). Sparse and structured storage
+# instead skips products against structural zeros (e.g. spzeros(1, 1)' * sparse([Inf;;])
+# is a structural zero), which can hide a non-finite entry behind a finite result.
+_stridedstorage(X::AbstractMatrix) = X isa StridedMatrix
+_stridedstorage(X::Union{Adjoint, Transpose}) = _stridedstorage(parent(X))
+_stridedstorage(A::FactoredMatrix) = _stridedstorage(A.u) && _stridedstorage(A.v)
+
 function Base.iszero(L::FactoredMatrix)
     if iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
         return true
@@ -255,11 +264,14 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
         else
             # conj(dot(X, Y)) = sum(X .* conj.(Y)) without the broadcast temporaries.
             s = conj(dot(A.u' * B.u, A.v' * B.v))
-            # With both ranks nonzero, a non-finite factor entry always leaves s
-            # non-finite (Inf * 0 = NaN and Inf - Inf = NaN, so IEEE sums and products
-            # never turn a non-finite operand into a finite result), so the factors
-            # only need scanning to tell overflow apart from non-finite inputs.
-            if isfinite(s) || _allfinite(A) && _allfinite(B)
+            # With both ranks nonzero and strided factors, a non-finite factor entry
+            # always leaves s non-finite (see _stridedstorage), so the factors need
+            # scanning only to tell overflow apart from non-finite inputs. Sparse or
+            # structured factors are always scanned, since their products can skip a
+            # non-finite entry of the other operand.
+            if isfinite(s) && _stridedstorage(A) && _stridedstorage(B)
+                return s
+            elseif _allfinite(A) && _allfinite(B)
                 return s
             end
         end
@@ -281,9 +293,11 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
         else
             # dot(u, B * v) = tr(u' * (B * v)) without the O(m * rank²) outer product.
             s = dot(A.u, B * A.v)
-            # As in the factored-factored method, a non-finite entry of A or B always
-            # leaves s non-finite when the rank is nonzero.
-            if isfinite(s) || _allfinite(A) && all(isfinite, B)
+            # As in the factored-factored method, with strided storage a non-finite
+            # entry of A or B always leaves s non-finite when the rank is nonzero.
+            if isfinite(s) && _stridedstorage(A) && _stridedstorage(B)
+                return s
+            elseif _allfinite(A) && all(isfinite, B)
                 return s
             end
         end
@@ -300,17 +314,41 @@ Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v
 Base.sum(::typeof(abs2), A::FactoredMatrix{<:Union{AbstractFloat, Complex{<:AbstractFloat}}}) = norm(A)^2
 
 # Gram closed form ‖u * v'‖² = Σᵢⱼ (u'u)ᵢⱼ conj((v'v)ᵢⱼ) together with the sum of the
-# absolute values of its terms, which bounds the reassociation rounding error.
+# absolute values of its terms, which bounds the reassociation rounding error, and a
+# trust flag ruling out underflow. Inversely scaled finite factors can underflow the
+# Gram matrices even though the represented matrix is far from zero (u = [1e-200] and
+# v = [1e100] represent [1e-100], but u'u underflows to zero), which no test on s and S
+# alone can detect. The closed form is trusted when every Gram diagonal and every term
+# is a normal number or an exact zero of exactly-zero origin (a zero factor column, or
+# a zero Gram entry): an underflowed-to-zero off-diagonal Gram entry is then dominated,
+# via Cauchy-Schwarz against the normal diagonals, by terms present in S, so its loss
+# stays within O(m * rank² * eps * S) — the order of the reassociation error bound.
 function _gramnormsq(A::FactoredMatrix)
     Gu = A.u' * A.u
     Gv = A.v' * A.v
-    s = S = zero(real(eltype(Gu)))
+    R = real(eltype(Gu))
+    s = S = zero(R)
+    ok = _normalgramdiag(Gu, A.u) && _normalgramdiag(Gv, A.v)
     for i in eachindex(Gu, Gv)
         t = Gu[i] * conj(Gv[i])
+        ok &= abs(t) ≥ floatmin(R) || iszero(t) && (iszero(Gu[i]) || iszero(Gv[i]))
         s += real(t)
         S += abs(t)
     end
-    return s, S
+    return s, S, ok
+end
+
+# Each diagonal of the Gram matrix X'X must be a normal number, or an exact zero coming
+# from an exactly-zero column of X — a subnormal or underflowed-to-zero diagonal means
+# the factor's scale corrupts the Gram products.
+function _normalgramdiag(G::AbstractMatrix, X::AbstractMatrix)
+    for i in axes(G, 1)
+        d = real(G[i, i])
+        if !(d ≥ floatmin(typeof(d)) || iszero(d) && iszero(view(X, :, i)))
+            return false
+        end
+    end
+    return true
 end
 
 """
@@ -320,21 +358,24 @@ Frobenius norm of the represented matrix, computed from the factors at `O((m + n
 cost without materializing the dense matrix. Only `p = 2` is supported.
 
 The Gram closed form `‖u * v'‖² = sum((u'u) .* conj(v'v))` is used when its sum incurs
-no significant cancellation, which a guard verifies against the sum of the absolute
-values of its terms. Otherwise — when the represented matrix is much smaller than its
-factors (e.g. `A - B` of two nearly-equal matrices) — the norm is evaluated by unitary
-invariance as `‖R_u * R_v'‖` with `R_u`, `R_v` the triangular QR factors, which does
-not cancel catastrophically; this fallback is what makes [`isapprox`](@ref) reliable.
+no significant cancellation — which a guard verifies against the sum of the absolute
+values of its terms — and no underflow, which inversely scaled factors can cause even
+when the represented matrix is far from zero. Otherwise — when the represented matrix
+is much smaller than its factors (e.g. `A - B` of two nearly-equal matrices) — the norm
+is evaluated by unitary invariance as `‖R_u * R_v'‖` with `R_u`, `R_v` the triangular
+QR factors, which neither cancels catastrophically nor underflows; this fallback is
+what makes [`isapprox`](@ref) reliable.
 """
 function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     p == 2 || throw(ArgumentError("only the Frobenius norm (p = 2) is supported"))
     if eltype(A) <: Union{AbstractFloat, Complex{<:AbstractFloat}}
-        s, S = _gramnormsq(A)
+        s, S, ok = _gramnormsq(A)
         # The rounding error of s is O((m + n + rank²) * eps * S), so s ≥ S / 4 caps
-        # the relative error of √s at the same order as the QR evaluation's. Non-finite
-        # factors always leave s or S non-finite (Gram diagonals are sums of abs2) and
-        # take the fallbacks below, like a guard failure from genuine cancellation.
-        if isfinite(S) && 4s ≥ S
+        # the relative error of √s at the same order as the QR evaluation's, provided
+        # no term was corrupted by underflow (the ok flag). Non-finite factors always
+        # leave s or S non-finite (Gram diagonals are sums of abs2) and take the
+        # fallbacks below, like a guard failure from genuine cancellation.
+        if ok && isfinite(S) && 4s ≥ S
             return sqrt(s)
         end
     end
