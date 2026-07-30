@@ -251,7 +251,7 @@ Frobenius inner product `sum(conj(A[i, j]) * B[i, j])`, evaluated in closed form
 materializing the dense matrices.
 """
 function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
-    T = promote_type(eltype(A), eltype(B))
+    T = _prodtype(eltype(A), eltype(B)) # the accumulation type of the inner product
     if size(A) == size(B) && length(A) == 0
         return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
     elseif A === B
@@ -259,7 +259,12 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     end
     return sum((A.u' * B.u) .* conj.(A.v' * B.v))
 end
-LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix) = tr(A.u' * (B * A.v))
+function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
+    if size(A) == size(B) && length(A) == 0
+        return zero(_prodtype(eltype(A), eltype(B))) # empty sum; avoid 0 * Inf garbage
+    end
+    return tr(A.u' * (B * A.v))
+end
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 
 # Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)), which keeps the exact

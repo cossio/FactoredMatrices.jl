@@ -270,6 +270,12 @@ Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
 Ac2 = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
 @test dot(Ac2, Ac2) isa ComplexF64
 @test dot(Ac2, Ac2) ≈ dot(Matrix(Ac2), Matrix(Ac2))
+# self-dots widen to the accumulation type, like the dense inner product
+Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
+@test dot(Lb, Lb) === 4
+# mixed factored/dense dots of empty matrices are empty (zero) sums, not 0 * Inf
+@test iszero(dot(Le, zeros(2, 0)))
+@test iszero(dot(zeros(2, 0), Le))
 
 # integer factorizations keep the exact integer accumulation of sum(abs2, Matrix(A)),
 # beyond Float64 precision (unlike the floating-point QR route used by norm)
