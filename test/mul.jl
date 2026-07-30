@@ -322,6 +322,18 @@ Lsq = FactoredMatrix(randn(5, 2), randn(5, 2)')
 @test transpose(x6) * cfm isa Transpose{<:Any, <:AbstractVector}
 @test transpose(x6) * cfm ≈ transpose(x6) * M65
 
+# iszero forwards to the wrapped factorization
+@test !iszero(cfm)
+@test iszero(FactoredMatrices.CachedFactoredMatrix(FactoredMatrix(zeros(3, 1), zeros(2, 1)'), 1))
+
+# factored destinations work with dense operands through the cache
+mfB = randn(5, 4)
+CfL = FactoredMatrix(zeros(6, 2), zeros(4, 2)')
+@test Matrix(mul!(CfL, cfm, mfB)) ≈ M65 * mfB
+mfA = randn(4, 6)
+CfR = FactoredMatrix(zeros(4, 2), zeros(5, 2)')
+@test Matrix(mul!(CfR, mfA, cfm)) ≈ mfA * M65
+
 # a workspace with a wider element type than the matrix can be bundled; it serves the
 # products whose intermediates are complex, while real products fall back to allocating
 # (a complex buffer would silently widen the arithmetic of a real product)
