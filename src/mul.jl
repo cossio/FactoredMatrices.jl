@@ -67,21 +67,36 @@ end
 
 #=== mul! into a dense output ===#
 
+# When the contracted dimension is empty, the product is exactly zero even if unused
+# factor entries are Inf/NaN; multiplying those factors into the exactly-zero rank-sized
+# intermediate would manufacture NaNs (0 * Inf). Passing α = false makes mul! scale C by
+# β without referencing the factors (a BLAS-level guarantee), keeping the shape checks.
+
 # C = α * L * B + β * C = α * u * (v' * B) + β * C
 Base.@inline function _mul!(C::AbstractVecOrMat, L::FactoredMatrix, B::AbstractVecOrMat, α::Number, β::Number, cache::MaybeWorkspace)
-    return mul!(C, L.u, _lbuf(cache, L, B), α, β)
+    t = _lbuf(cache, L, B)
+    if size(L.v, 1) == 0
+        return mul!(C, L.u, t, false, β)
+    end
+    return mul!(C, L.u, t, α, β)
 end
 
 # C = α * A * M + β * C = α * (A * u) * v' + β * C
 Base.@inline function _mul!(C::AbstractMatrix, A::AbstractMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
-    return mul!(C, _rbuf(cache, A, M), M.v', α, β)
+    t = _rbuf(cache, A, M)
+    if size(M.u, 1) == 0
+        return mul!(C, t, M.v', false, β)
+    end
+    return mul!(C, t, M.v', α, β)
 end
 
 # C = α * L * M + β * C with t = v_L' * u_M of size rank(L) × rank(M); associate so that
 # the second (allocated) intermediate is the smaller of rank(L) × n and m × rank(M).
 Base.@inline function _mul!(C::AbstractMatrix, L::FactoredMatrix, M::FactoredMatrix, α::Number, β::Number, cache::MaybeWorkspace)
     t = _lbuf(cache, L, M.u)
-    if rank(L) * size(M.v, 1) ≤ size(L.u, 1) * rank(M)
+    if size(L.v, 1) == 0
+        return mul!(C, L.u * t, M.v', false, β)
+    elseif rank(L) * size(M.v, 1) ≤ size(L.u, 1) * rank(M)
         return mul!(C, L.u, t * M.v', α, β)
     else
         return mul!(C, L.u * t, M.v', α, β)
@@ -104,7 +119,14 @@ end
 # when a cache is provided.
 function _fmul!(C::FactoredMatrix, L::FactoredMatrix, M::FactoredMatrix, cache::MaybeWorkspace)
     t = _lbuf(cache, L, M.u)
-    if rank(C) == rank(L)
+    if size(L.v, 1) == 0 # exactly zero product; avoid 0 * Inf from unused factor values
+        if size(C.u, 1) ≠ size(L.u, 1) || size(C.v, 1) ≠ size(M.v, 1)
+            throw(DimensionMismatch("C has size $(size(C)), expected $((size(L.u, 1), size(M.v, 1)))"))
+        end
+        fill!(C.u, zero(eltype(C.u)))
+        fill!(C.v, zero(eltype(C.v)))
+        return C
+    elseif rank(C) == rank(L)
         _copyfactor!(C.u, L.u)
         mul!(C.v, M.v, t') # C.v' = t * M.v'
     elseif rank(C) == rank(M)
@@ -225,6 +247,11 @@ struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace{T}} <: Fac
 end
 
 CachedFactoredMatrix(M::FactoredMatrix, p::Integer) = CachedFactoredMatrix(M, Workspace(M, p))
+
+# The adjoint/transpose share the buffers: the rank is unchanged, so products against
+# the adjointed matrix use the same intermediate sizes.
+Base.adjoint(C::CachedFactoredMatrix) = CachedFactoredMatrix(adjoint(C.M), C.ws)
+Base.transpose(C::CachedFactoredMatrix) = CachedFactoredMatrix(transpose(C.M), C.ws)
 
 Base.size(C::CachedFactoredMatrix) = size(C.M)
 Base.size(C::CachedFactoredMatrix, d::Integer) = size(C.M, d)

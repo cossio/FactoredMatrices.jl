@@ -72,9 +72,10 @@ LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 # Single entries are cheap (O(rank)); full indexing semantics are deliberately absent.
 Base.getindex(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
-# 0 * Inf = NaN and 0 * NaN = NaN, so a zero factor only gives a zero matrix if the
-# other factor is finite.
-Base.iszero(L::FactoredMatrix) = iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
+# An empty represented matrix is zero whatever the (unused) factor values are.
+# Otherwise, 0 * Inf = NaN and 0 * NaN = NaN, so a zero factor only gives a zero matrix
+# if the other factor is finite.
+Base.iszero(L::FactoredMatrix) = length(L) == 0 || (iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v))
 
 Base.adjoint(L::FactoredMatrix) = _FactoredMatrix(L.v, L.u)
 Base.transpose(L::FactoredMatrix) = _FactoredMatrix(conj(L.v), conj(L.u))
@@ -173,19 +174,38 @@ Base.:(-)(A::FactoredMatrix, B::FactoredMatrix) = _FactoredMatrix([A.u B.u], [A.
 
 # The product of two factored matrices is factored, with the rank of the lower-rank
 # operand: u_L (v_L' u_M) v_M' is absorbed into the factor pair that keeps rank smallest.
+# Products over an empty contracted dimension are exactly zero, even when the (unused)
+# factor entries are not finite; multiplying them into the exactly-zero intermediate
+# would manufacture NaNs (0 * Inf), so those factors are replaced by zeros.
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
-    if rank(L) ≤ rank(M)
+    if size(L.v, 1) == size(M.u, 1) == 0
+        r = min(rank(L), rank(M))
+        T = promote_type(eltype(L), eltype(M))
+        return _FactoredMatrix(zeros(T, size(L.u, 1), r), zeros(T, size(M.v, 1), r))
+    elseif rank(L) ≤ rank(M)
         return _FactoredMatrix(copy(L.u), M.v * (M.u' * L.v))
     else
         return _FactoredMatrix(L.u * (L.v' * M.u), copy(M.v))
     end
 end
 
-Base.:(*)(L::FactoredMatrix, A::AbstractMatrix) = _FactoredMatrix(copy(L.u), A' * L.v)
-Base.:(*)(A::AbstractMatrix, L::FactoredMatrix) = _FactoredMatrix(A * L.u, copy(L.v))
+function Base.:(*)(L::FactoredMatrix, A::AbstractMatrix)
+    w = A' * L.v # rank-sized; exactly zero when the contracted dimension is empty
+    return _FactoredMatrix(size(L.v, 1) == 0 ? zero(L.u) : copy(L.u), w)
+end
+function Base.:(*)(A::AbstractMatrix, L::FactoredMatrix)
+    u = A * L.u # rank-sized; exactly zero when the contracted dimension is empty
+    return _FactoredMatrix(u, size(L.u, 1) == 0 ? zero(L.v) : copy(L.v))
+end
 
-Base.:(*)(L::FactoredMatrix, x::AbstractVector) = L.u * (L.v' * x)
-Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::FactoredMatrix) = (x * L.u) * L.v'
+function Base.:(*)(L::FactoredMatrix, x::AbstractVector)
+    t = L.v' * x # rank-sized; exactly zero when the contracted dimension is empty
+    return size(L.v, 1) == 0 ? zeros(_prodtype(eltype(L), eltype(x)), size(L.u, 1)) : L.u * t
+end
+function Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::FactoredMatrix)
+    t = x * L.u # rank-sized; exactly zero when the contracted dimension is empty
+    return size(L.u, 1) == 0 ? adjoint(zeros(_prodtype(eltype(x), eltype(L)), size(L.v, 1))) : t * L.v'
+end
 
 # Explicit Adjoint/Transpose wrappers around a FactoredMatrix are re-wrapped into plain
 # FactoredMatrixes (adjoint/transpose of a FactoredMatrix is again a FactoredMatrix).
@@ -230,7 +250,15 @@ Frobenius inner product `sum(conj(A[i, j]) * B[i, j])`, evaluated in closed form
 `rank(A) × rank(B)` Gram matrices at `O((m + n) * rank(A) * rank(B))` cost, without
 materializing the dense matrices.
 """
-LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix) = sum((A.u' * B.u) .* conj.(A.v' * B.v))
+function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
+    T = promote_type(eltype(A), eltype(B))
+    if size(A) == size(B) && length(A) == 0
+        return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
+    elseif A === B
+        return convert(T, sum(abs2, A)) # stable, nonnegative self-inner product
+    end
+    return sum((A.u' * B.u) .* conj.(A.v' * B.v))
+end
 LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix) = tr(A.u' * (B * A.v))
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 

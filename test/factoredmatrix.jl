@@ -60,6 +60,9 @@ M = Matrix(A)
 @test !iszero(FactoredMatrix(fill(NaN, 10, 3), zeros(5, 3)'))
 @test !iszero(FactoredMatrix(zeros(10, 3), fill(Inf, 5, 3)'))
 @test !iszero(FactoredMatrix(fill(-Inf, 10, 3), zeros(5, 3)'))
+# empty represented matrices are zero regardless of the (unused) factor values
+@test iszero(FactoredMatrix(zeros(0, 1), fill(Inf, 2, 1)'))
+@test iszero(FactoredMatrix(fill(NaN, 2, 1), zeros(0, 1)'))
 
 # adjoint and transpose
 for T in (Float64, ComplexF64)
@@ -142,6 +145,18 @@ A = FactoredMatrix(randn(20, 2), randn(12, 2)')
 B = FactoredMatrix(randn(10, 2), randn(14, 2)')
 @test_throws DimensionMismatch A * B
 @test_throws DimensionMismatch B * A
+
+# products over an empty contracted dimension are exactly zero, even when the unused
+# factor entries are not finite (the reassociation must not manufacture 0 * Inf = NaN)
+Le = FactoredMatrix(fill(Inf, 2, 1), zeros(0, 1)') # 2 × 0
+Me = FactoredMatrix(zeros(0, 1), fill(Inf, 3, 1)') # 0 × 3
+@test size(Le * Me) == (2, 3)
+@test iszero(Matrix(Le * Me))
+@test iszero(Matrix(Le * zeros(0, 3)))
+@test iszero(Matrix(zeros(3, 0) * Me))
+@test iszero(Le * zeros(0))
+@test iszero(zeros(0)' * Me)
+@test_throws DimensionMismatch Le * FactoredMatrix(randn(5, 1), randn(3, 1)')
 
 # products with dense matrices and vectors
 A = FactoredMatrix(randn(20, 2), randn(12, 2)')
@@ -244,6 +259,17 @@ for T in (Float64, ComplexF64)
     @test_throws DimensionMismatch tr(A)
 end
 @test iszero(norm(FactoredMatrix(zeros(5, 2), zeros(4, 2)')))
+
+# empty factorizations dot to zero (an empty sum) even with non-finite factor values,
+# and self-dots use the stable nonnegative reduction instead of the Gram form
+E1 = FactoredMatrix(zeros(0, 1), fill(Inf, 2, 1)')
+@test iszero(dot(E1, E1))
+Afc = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
+@test dot(Afc, Afc) ≥ 0
+@test dot(Afc, Afc) ≈ sum(abs2, Matrix(Afc))
+Ac2 = FactoredMatrix(randn(ComplexF64, 6, 2), randn(ComplexF64, 5, 2)')
+@test dot(Ac2, Ac2) isa ComplexF64
+@test dot(Ac2, Ac2) ≈ dot(Matrix(Ac2), Matrix(Ac2))
 
 # integer factorizations keep the exact integer accumulation of sum(abs2, Matrix(A)),
 # beyond Float64 precision (unlike the floating-point QR route used by norm)

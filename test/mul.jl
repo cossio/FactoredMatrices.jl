@@ -262,6 +262,28 @@ C45 = zeros(4, 5)
 Cf45 = FactoredMatrix(zeros(4, 3), zeros(5, 3)')
 @test Matrix(mul!(Cf45, A3, cfm3)) ≈ Matrix(A3) * Matrix(L)
 
+# in-place products over an empty contracted dimension are exactly zero too
+Le = FactoredMatrix(fill(Inf, 2, 1), zeros(0, 1)') # 2 × 0
+Me = FactoredMatrix(zeros(0, 1), fill(Inf, 3, 1)') # 0 × 3
+@test iszero(mul!(randn(2, 3), Le, Me))
+C0 = randn(2, 3)
+@test mul!(copy(C0), Le, Me, 2.0, 3.0) ≈ 3 * C0
+@test iszero(mul!(randn(2, 3), Le, zeros(0, 3)))
+@test iszero(mul!(randn(3, 3), zeros(3, 0), Me))
+@test iszero(mul!(randn(2), Le, zeros(0)))
+Cfe = FactoredMatrix(randn(2, 1), randn(3, 1)')
+@test iszero(Matrix(mul!(Cfe, Le, Me)))
+@test_throws DimensionMismatch mul!(FactoredMatrix(randn(5, 1), randn(3, 1)'), Le, Me)
+
+# adjoint/transpose of a cached matrix forward to the wrapped matrix, sharing buffers
+@test cfm' isa FactoredMatrices.CachedFactoredMatrix
+@test transpose(cfm) isa FactoredMatrices.CachedFactoredMatrix
+x6 = randn(6)
+@test cfm' * x6 ≈ Matrix(L)' * x6
+@test Matrix(transpose(cfm)) ≈ transpose(Matrix(L))
+y5 = zeros(5)
+@test mul!(y5, cfm', x6) ≈ Matrix(L)' * x6
+
 # Boolean products accumulate into Int, like ordinary matrix products
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
 cfb = FactoredMatrices.CachedFactoredMatrix(Lb, 1)
