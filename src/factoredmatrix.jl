@@ -9,14 +9,11 @@ The `m × n` matrix `u * v'` stored in factored form, where `u` is `m × r` and 
 
 The second factor must be passed adjointed (or transposed), so that the call reads as
 the product it represents: `FactoredMatrix(u, v')` is the matrix `u * v'`. Passing two
-plain matrices throws an `ArgumentError`. Vector arguments are treated as one-column
-matrices, so `FactoredMatrix(x, y')` is the outer product of the vectors `x` and `y`.
-Structured matrices whose adjoint is computed eagerly (`Diagonal`, `Hermitian`,
-triangular, ...) are accepted directly as the second argument and taken verbatim as the
-right multiplicand, since for them `X'` is not an `Adjoint` wrapper: `FactoredMatrix(u, X)`
-represents `u * X`, which is what the call reads as whether or not the caller wrote `X'`.
-If the factors have different element types, both are converted to their promoted
-element type.
+plain matrices throws an `ArgumentError`. Vectors are treated as one-column matrices,
+so `FactoredMatrix(x, y')` is the outer product of `x` and `y`. Structured matrices
+whose adjoint is eager (`Diagonal`, `Hermitian`, triangular, ...) are accepted directly
+and taken verbatim as the right multiplicand. Factors with different element types are
+promoted to a common element type.
 
 `FactoredMatrix <: Factorization`, so it does not support iteration or the generic
 `AbstractMatrix` fallbacks. The supported operations (`*`, `mul!`, `+`, `-`, `dot`,
@@ -49,10 +46,8 @@ _colform(x::AbstractVector) = reshape(x, :, 1)
 FactoredMatrix(u::AbstractVecOrMat, vt::Adjoint{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), _colform(parent(vt)))
 FactoredMatrix(u::AbstractVecOrMat, vt::Transpose{<:Any, <:AbstractVecOrMat}) = _FactoredMatrix(_colform(u), conj(_colform(parent(vt))))
 
-# Structured matrix types whose adjoint is computed eagerly instead of returning an
-# `Adjoint` wrapper (adjoint(::Diagonal) is a Diagonal, adjoint(::UpperTriangular) a
-# LowerTriangular, ...). Receiving the bare type is consistent with the caller having
-# written `FactoredMatrix(u, X')` as documented, so the second argument is taken
+# Types whose adjoint is eager (adjoint(::Diagonal) is a Diagonal, not an Adjoint
+# wrapper), so the wrapper convention cannot apply; the second argument is taken
 # verbatim as the right multiplicand: the represented matrix is `u * X`.
 const EagerAdjointFactor = Union{
     Bidiagonal, Diagonal, Hermitian, LowerTriangular, SymTridiagonal, Symmetric,
@@ -88,11 +83,9 @@ LinearAlgebra.rank(L::FactoredMatrix) = size(L.u, 2)
 # Single entries are cheap (O(rank)); full indexing semantics are deliberately absent.
 Base.getindex(L::FactoredMatrix, i::Integer, j::Integer) = dot(view(L.v, j, :), view(L.u, i, :))
 
-# A zero factor gives an exactly zero product without looking at entries, provided the
-# cofactor is finite (0 * Inf = NaN and 0 * NaN = NaN). Nonzero factors can still cancel
-# to the zero matrix (e.g. A - A, whose factor columns cancel pairwise), so otherwise
-# check the represented entries, short-circuiting at the first nonzero one; an empty
-# matrix is trivially zero on either path.
+# Fast path: a zero factor with a finite cofactor gives an exactly zero product
+# (0 * Inf = NaN). Nonzero factors can still cancel (e.g. A - A), so otherwise check
+# the represented entries, short-circuiting at the first nonzero one.
 function Base.iszero(L::FactoredMatrix)
     if iszero(L.u) && all(isfinite, L.v) || all(isfinite, L.u) && iszero(L.v)
         return true
@@ -115,24 +108,19 @@ Base.show(io::IO, ::MIME"text/plain", L::FactoredMatrix) = show(io, L)
 """
     ==(A::FactoredMatrix, B::FactoredMatrix)
 
-Exact elementwise equality of the represented matrices. Entries are compared one at a
-time from the factors (`O(m * n * rank)` work, `O(1)` memory), so the dense matrices are
-never materialized. Since floating-point roundoff makes exact equality of two different
-factorizations of the same matrix unlikely, [`isapprox`](@ref) is usually what you want.
-
-There is deliberately no shortcut for equal factors: equal factors can still represent
-matrices with `NaN` entries (e.g. from `0 * Inf` products or overflowing sums), which
-compare unequal elementwise, like dense arrays containing `NaN`.
+Exact elementwise equality of the represented matrices, one entry at a time from the
+factors (`O(m * n * rank)` work, `O(1)` memory). Exact equality of different
+factorizations is unlikely in floating point; [`isapprox`](@ref) is usually what you
+want. There is deliberately no equal-factor shortcut: equal factors can still represent
+`NaN` entries (e.g. from `0 * Inf`), which compare unequal like in dense arrays.
 """
 function Base.:(==)(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
     return all(A[i, j] == B[i, j] for i in axes(A.u, 1), j in axes(A.v, 1))
 end
 
-# `isequal` compares the represented entries with dense-array semantics (in particular,
-# NaN entries are equal to themselves), so factorizations behave as hashed-collection
-# keys: `isequal(A, A)` must hold even for represented NaN entries, which `==`
-# deliberately rejects.
+# isequal uses dense-array semantics (NaN entries equal to themselves), so that
+# factorizations work as hashed-collection keys even with NaN entries.
 function Base.isequal(A::FactoredMatrix, B::FactoredMatrix)
     size(A) == size(B) || return false
     return all(isequal(A[i, j], B[i, j]) for i in axes(A.u, 1), j in axes(A.v, 1))
@@ -159,14 +147,10 @@ _rtoldefault(A, B, atol) = iszero(atol) ? √eps(float(promote_type(real(eltype(
     isapprox(A::FactoredMatrix, B::FactoredMatrix; atol = 0, rtol, nans = false)
 
 Approximate equality `norm(A - B) ≤ max(atol, rtol * max(norm(A), norm(B)))` in the
-Frobenius norm, like `isapprox` for arrays. The difference `A - B` is itself low-rank
-(rank at most `rank(A) + rank(B)`), so its norm is evaluated from thin QR factorizations
-of the concatenated factors at `O((m + n) * (rank(A) + rank(B))²)` cost, without ever
-materializing the dense matrices.
-
-Like `isapprox` for arrays, when the distance is not finite (matrices with `Inf` or
-`NaN` entries) the comparison falls back to elementwise approximate equality, computed
-one entry at a time from the factors.
+Frobenius norm, like `isapprox` for arrays. `A - B` is itself low-rank, so its norm is
+evaluated from thin QR factorizations of the concatenated factors at
+`O((m + n) * (rank(A) + rank(B))²)` cost, never materializing the dense matrices.
+When the distance is not finite, falls back to elementwise comparison, like arrays.
 """
 function Base.isapprox(
         A::FactoredMatrix, B::FactoredMatrix;
@@ -184,9 +168,8 @@ end
 #=== scalar multiples and low-rank sums ===#
 
 # Scalars are folded into one factor. For non-finite scalars the represented entries
-# can then differ from dense entrywise scaling — e.g. dividing by zero turns dormant
-# zero-valued factor terms into 0 * Inf = NaN — since a dense ±Inf/NaN pattern is not
-# generally representable as a rank-r product. This is inherent to the factored form.
+# can differ from dense entrywise scaling (0 * Inf = NaN from dormant factor terms);
+# this is inherent to the factored form.
 Base.:(*)(a::Number, L::FactoredMatrix) = _FactoredMatrix(a * L.u, L.v)
 Base.:(*)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, conj(a) * L.v) # u * v' * a = u * (conj(a) * v)'
 Base.:(/)(L::FactoredMatrix, a::Number) = _FactoredMatrix(L.u, L.v / conj(a))
@@ -199,20 +182,18 @@ Base.:(-)(L::FactoredMatrix) = _FactoredMatrix(-L.u, L.v)
     +(A::FactoredMatrix, B::FactoredMatrix)
     -(A::FactoredMatrix, B::FactoredMatrix)
 
-Lazy sum (difference) by concatenating the factors: the result is a `FactoredMatrix` of
-storage rank `rank(A) + rank(B)`. Ranks add up under repeated summation; the dense
-matrices are never formed.
+Lazy sum (difference) by concatenating the factors: the result is a `FactoredMatrix`
+of storage rank `rank(A) + rank(B)`. The dense matrices are never formed.
 """
 Base.:(+)(A::FactoredMatrix, B::FactoredMatrix) = _FactoredMatrix([A.u B.u], [A.v B.v])
 Base.:(-)(A::FactoredMatrix, B::FactoredMatrix) = _FactoredMatrix([A.u B.u], [A.v -B.v])
 
 #=== products (allocating, structure-preserving) ===#
 
-# The product of two factored matrices is factored, with the rank of the lower-rank
-# operand: u_L (v_L' u_M) v_M' is absorbed into the factor pair that keeps rank smallest.
-# Products over an empty contracted dimension are exactly zero, even when the (unused)
-# factor entries are not finite; multiplying them into the exactly-zero intermediate
-# would manufacture NaNs (0 * Inf), so those factors are replaced by zeros.
+# The product of two factored matrices keeps the smaller rank: u_L (v_L' u_M) v_M' is
+# absorbed into one factor pair. Products over an empty contracted dimension are exactly
+# zero; the unused (possibly non-finite) factors are replaced by zeros so that
+# 0 * Inf = NaN cannot leak into the result.
 function Base.:(*)(L::FactoredMatrix, M::FactoredMatrix)
     if size(L.v, 1) == size(M.u, 1) == 0
         r = min(rank(L), rank(M))
@@ -247,12 +228,10 @@ end
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, L::FactoredMatrix) = transpose(transpose(L) * parent(x))
 
 # Explicit Adjoint/Transpose wrappers around a FactoredMatrix are re-wrapped into plain
-# FactoredMatrixes (adjoint/transpose of a FactoredMatrix is again a FactoredMatrix).
+# FactoredMatrixes. NOTE: re-wrapping a Transpose of a complex FactoredMatrix conj-copies
+# the factors; in hot loops prefer calling transpose(L) once outside the loop.
 const AdjOrTransFM = Union{Adjoint{<:Any, <:FactoredMatrix}, Transpose{<:Any, <:FactoredMatrix}}
 
-# NOTE: re-wrapping a Transpose of a complex FactoredMatrix copies the conjugated
-# factors (O((m + n) rank) allocation per call); in hot loops prefer calling
-# transpose(L) once outside the loop, which yields a reusable plain FactoredMatrix.
 rewrap(L::FactoredMatrix) = L
 rewrap(L::Adjoint{<:Any, <:FactoredMatrix}) = adjoint(parent(L))
 rewrap(L::Transpose{<:Any, <:FactoredMatrix}) = transpose(parent(L))
@@ -295,29 +274,25 @@ Base.:(-)(A::FactoredMatrix, B::AdjOrTransFM) = A - rewrap(B)
 """
     \\(L::FactoredMatrix, b)
 
-Solve `L * x = b` in the least-squares sense, returning the minimum-norm least-squares
-(pseudoinverse) solution. Goes through `svd(L)`, which exploits the factors, so the
-dense matrix is never materialized. Rank deficiency — including factors with dependent
-columns, as routinely produced by the lazy `+` and `-` — is handled with the same
-dimension-scaled relative singular-value cutoff as `pinv`.
+Minimum-norm least-squares (pseudoinverse) solution of `L * x = b`, via `svd(L)` — the
+dense matrix is never materialized. Rank deficiency (including dependent factor columns
+from the lazy `+`/`-`) is handled with the same dimension-scaled singular-value cutoff
+as `pinv`.
 """
 Base.:(\)(L::FactoredMatrix, b::AbstractVecOrMat) = _lssolve(L, b)
 
 # Disambiguate against LinearAlgebra's real-Factorization/complex-RHS fallback.
 Base.:(\)(L::FactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union{Float32, Float64}} = _lssolve(L, b)
 
-# Solving factor by factor (v' \ (u \ b)) would be the pseudoinverse only when both
-# factors have full column rank, which the lazy sums routinely break by concatenating
-# factor columns. The SVD of the represented matrix handles any rank profile, and its
-# U and V are only m × k and n × k, so the dense m × n matrix is still never formed.
+# Solving factor by factor (v' \ (u \ b)) would require both factors to have full
+# column rank, which the lazy sums routinely break; the SVD handles any rank profile.
 function _lssolve(L::FactoredMatrix, b::AbstractVecOrMat)
     if size(L, 1) ≠ size(b, 1)
         throw(DimensionMismatch("matrix has $(size(L, 1)) rows, right-hand side has $(size(b, 1))"))
     end
     F = svd(L)
-    # Singular values below pinv's default dimension-scaled cutoff (in particular, exact
-    # zeros from a zero or rank-0 matrix) contribute nothing to the pseudoinverse; with
-    # k = 0 the products below yield the all-zero solution.
+    # Singular values below pinv's cutoff (in particular exact zeros) contribute
+    # nothing; with k = 0 the products below yield the all-zero solution.
     if isempty(F.S) || iszero(first(F.S))
         k = 0
     else
@@ -342,9 +317,7 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::FactoredMatrix)
     if size(A) == size(B) && length(A) == 0
         return zero(T) # empty sum; the Gram factors could still hold 0 * Inf garbage
     elseif A === B || (eltype(A) === eltype(B) && A.u == B.u && A.v == B.v)
-        # stable, nonnegative self-inner product; equal factors of the same element
-        # type (e.g. from copy) mean the same represented matrix computed the same way
-        # (mixed precisions accumulate differently, so they take the mixed product)
+        # same represented matrix, same arithmetic: use the stable nonnegative self-dot
         return convert(T, sum(abs2, A))
     end
     return sum((A.u' * B.u) .* conj.(A.v' * B.v))
@@ -357,14 +330,11 @@ function LinearAlgebra.dot(A::FactoredMatrix, B::AbstractMatrix)
 end
 LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 
-# Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)), which keeps the
-# accumulation type of sum(abs2, Matrix(A)) and stays exact for integer factors as long
-# as no intermediate overflows its fixed-width type (under wrapping overflow the
-# reassociation overflows at different points than the dense entrywise reduction, as
-# any two accumulation orders do).
+# Gram-matrix closed form ‖u * v'‖² = sum((u'u) .* conj(v'v)): keeps the accumulation
+# type of sum(abs2, Matrix(A)) and stays exact for integer factors (barring overflow).
 Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v' * A.v)))
-# For floating-point factors the Gram form can catastrophically cancel (even to a
-# negative value) when factor columns nearly cancel; the QR-based norm is stable.
+# For floating-point factors the Gram form can catastrophically cancel (even below
+# zero) when factor columns nearly cancel; the QR-based norm is stable.
 Base.sum(::typeof(abs2), A::FactoredMatrix{<:Union{AbstractFloat, Complex{<:AbstractFloat}}}) = norm(A)^2
 
 """
@@ -374,10 +344,9 @@ Frobenius norm of the represented matrix, computed from the factors at `O((m + n
 cost without materializing the dense matrix. Only `p = 2` is supported.
 
 By unitary invariance `‖u * v'‖ = ‖R_u * R_v'‖` with `R_u`, `R_v` the triangular QR
-factors of `u` and `v`. Unlike the Gram-matrix closed form `tr((u'u)(v'v))`, this does
-not suffer catastrophic cancellation when the represented matrix is much smaller than
-its factors (e.g. the difference `A - B` of two nearly-equal factored matrices), which
-is what makes the [`isapprox`](@ref) comparison reliable.
+factors. Unlike the Gram form `tr((u'u)(v'v))`, this does not cancel catastrophically
+when the represented matrix is much smaller than its factors (e.g. `A - B` of two
+nearly-equal matrices), which is what makes [`isapprox`](@ref) reliable.
 """
 function LinearAlgebra.norm(A::FactoredMatrix, p::Real = 2)
     p == 2 || throw(ArgumentError("only the Frobenius norm (p = 2) is supported"))
@@ -400,14 +369,12 @@ end
 """
     svd(A::FactoredMatrix)
 
-Compute the singular value decomposition of `A`, exploiting the factored representation.
-Only QR decompositions of the factors and an SVD of the `min(m, r) × min(n, r)` core are
-required, which is cheaper than an SVD of the materialized full matrix when `r < m, n`.
+Singular value decomposition from QRs of the factors and an SVD of the small
+`min(m, r) × min(n, r)` core — cheaper than `svd(Matrix(A))` when `r < m, n`.
 
-Returns a reduced `LinearAlgebra.SVD` factorization object with `min(m, n, r)` singular
-values, where `U` is `m × min(m, n, r)` and `Vt` is `min(m, n, r) × n`. When
-`r < min(m, n)` this is smaller than the factorization returned by `svd(Matrix(A))`,
-which has `min(m, n)` singular values; the omitted singular values are all zero.
+Returns a reduced `LinearAlgebra.SVD` with `min(m, n, r)` singular values (`U` is
+`m × k`, `Vt` is `k × n`); the singular values omitted relative to `svd(Matrix(A))`
+are all zero.
 """
 function LinearAlgebra.svd(A::FactoredMatrix)
     qru = qr(A.u)

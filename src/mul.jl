@@ -6,26 +6,20 @@
 
 Pre-allocated scratch buffers for allocation-free `mul!` with a [`FactoredMatrix`](@ref),
 passed via the `cache` keyword: `mul!(C, L, B; cache = ws)`. Here `r` is the storage
-rank of the factorization and `p` is the outer size of the other operand:
+rank and `p` the outer size of the other operand:
 
   - `mul!(C, L, B; cache = ws)` needs `p = size(B, 2)` (`p = 1` for a vector `B`);
   - `mul!(C, A, L; cache = ws)` needs `p = size(A, 1)`;
   - `mul!(C, L, M; cache = ws)` with both operands factored needs `r = rank(L)` and
-    `p = rank(M)`, and is fully allocation-free when `C` is a `FactoredMatrix` (one
-    small intermediate is still allocated when `C` is dense).
+    `p = rank(M)` (fully allocation-free when `C` is a `FactoredMatrix`).
 
 The buffers are used only for products whose intermediates have exactly the element
-type `T` (for example, a real matrix times complex operands needs a complex workspace);
-other products still work, falling back to allocating their intermediates.
-`Workspace(L, p)` picks the element type of a same-element-type product of `L`, which
-can be wider than `eltype(L)` (e.g. `Int` buffers for `Bool` factors, whose products
-accumulate into `Int`).
-
-The same `Workspace` can be reused across calls (including adjoint/transpose variants,
-which have the same rank) as long as the operand sizes do not change. Create one
-`Workspace` per thread/task when multiplying concurrently against the same matrix.
-See also [`FactoredMatrices.CachedFactoredMatrix`](@ref) to bundle the buffers with the
-matrix.
+type `T`; other products fall back to allocating. `Workspace(L, p)` picks the element
+type of a same-element-type product of `L` (e.g. `Int` for `Bool` factors, whose
+products accumulate into `Int`). A `Workspace` can be reused across calls (including
+adjoint/transpose variants) as long as the operand sizes do not change; use one per
+task when multiplying concurrently. See also
+[`FactoredMatrices.CachedFactoredMatrix`](@ref) to bundle the buffers with the matrix.
 """
 struct Workspace{T}
     left::Matrix{T} # r × p buffer, holds v' * B when the factored matrix is the left operand
@@ -33,9 +27,8 @@ struct Workspace{T}
 end
 
 Workspace{T}(r::Integer, p::Integer) where {T} = Workspace{T}(Matrix{T}(undef, r, p), Matrix{T}(undef, p, r))
-# The convenience constructor uses the element type of a same-element-type product of L,
-# not the factor element type: they differ when products widen (e.g. Bool factors
-# accumulate into Int), and a buffer of the factor type could then never be used.
+# Sized by the product element type, not the factor type: a Workspace{Bool} could never
+# hold the Int intermediates of a Bool product.
 Workspace(L::FactoredMatrix{T}, p::Integer) where {T} = Workspace{_prodtype(T, T)}(rank(L), p)
 
 const MaybeWorkspace = Union{Workspace, Nothing}
@@ -46,10 +39,9 @@ _prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T
 
 # Small intermediates, written into the workspace buffers when a cache is provided.
 # The buffer is used only when its element type is exactly the intermediate's natural
-# element type: a narrower buffer could not hold the values (InexactError), while a
-# wider one (e.g. a complex buffer with all-real operands) would silently widen the
-# arithmetic of the downstream products. Any mismatch falls back to allocating, so a
-# cache never changes results. The branches are resolved at compile time.
+# type (narrower could not hold the values; wider would silently change the downstream
+# arithmetic); any mismatch falls back to allocating, so a cache never changes results.
+# The branches are resolved at compile time.
 _lbuf(::Nothing, L::FactoredMatrix, B) = L.v' * B
 function _lbuf(ws::Workspace{T}, L::FactoredMatrix, B::AbstractMatrix) where {T}
     if T === _prodtype(eltype(L), eltype(B))
@@ -76,10 +68,9 @@ end
 
 #=== mul! into a dense output ===#
 
-# When the contracted dimension is empty, the product is exactly zero even if unused
-# factor entries are Inf/NaN; multiplying those factors into the exactly-zero rank-sized
-# intermediate would manufacture NaNs (0 * Inf). Passing α = false makes mul! scale C by
-# β without referencing the factors (a BLAS-level guarantee), keeping the shape checks.
+# When the contracted dimension is empty the product is exactly zero even if unused
+# factor entries are Inf/NaN (0 * Inf = NaN). Passing α = false makes mul! scale C by β
+# without referencing the factors (a BLAS-level guarantee), keeping the shape checks.
 
 # C = α * L * B + β * C = α * u * (v' * B) + β * C
 Base.@inline function _mul!(C::AbstractVecOrMat, L::FactoredMatrix, B::AbstractVecOrMat, α::Number, β::Number, cache::MaybeWorkspace)
@@ -114,11 +105,10 @@ end
 
 #=== mul! into a FactoredMatrix output (3-arg only; β * C is not representable) ===#
 
-# Verbatim factor copy with a strict shape check: broadcasting `.=` would silently
-# expand singleton dimensions (e.g. copying an m × 1 factor into an m × 2 one).
-# With `zero_it` the destination is zero-filled instead: used when an empty contracted
-# dimension makes the product exactly zero, so copying (possibly non-finite) unused
-# factor values would corrupt the result with 0 * Inf entries.
+# Verbatim factor copy with a strict shape check (broadcasting `.=` would silently
+# expand singleton dimensions). With `zero_it` the destination is zero-filled instead:
+# an empty contracted dimension makes the product exactly zero, and copying the unused
+# (possibly non-finite) factor would corrupt it with 0 * Inf entries.
 function _copyfactor!(dst::AbstractMatrix, src::AbstractMatrix, zero_it::Bool = false)
     if size(dst) ≠ size(src)
         throw(DimensionMismatch("output factor has size $(size(dst)), expected $(size(src))"))
@@ -186,9 +176,8 @@ allocation-free.
 """
 mul!
 
-# Signatures must name FactoredMatrix or the (AbstractMatrix-subtyped) wrapper union
-# explicitly — never a Union of the two — so that each method is strictly more specific
-# than the LinearAlgebra generics and no dispatch ambiguities arise.
+# Signatures must name FactoredMatrix or the wrapper union explicitly — never a Union
+# of the two — so each method is strictly more specific than the LinearAlgebra generics.
 for FM in (:FactoredMatrix, :AdjOrTransFM)
     @eval begin
         function LinearAlgebra.mul!(C::AbstractMatrix, A::$FM, B::AbstractMatrix, α::Number, β::Number; cache::MaybeWorkspace = nothing)
@@ -243,15 +232,11 @@ end
     CachedFactoredMatrix(M::FactoredMatrix, p::Integer)
 
 Bundle a [`FactoredMatrix`](@ref) with a pre-allocated [`FactoredMatrices.Workspace`](@ref)
-so they travel together through an API that takes a single matrix-like argument.
-Products against a `CachedFactoredMatrix` automatically use the bundled buffers as their
-`mul!` cache, sparing callers from threading a `cache` argument through every call site.
-
-The bundled `Workspace` carries a single outer size `p` (e.g. `size(B, 2)` for
-`cfm * B`, or `size(A, 1)` for `A * cfm`). The buffers are used only for products they
-fit, in shape and element type; other products still work, falling back to allocating
-their intermediates. Use one `CachedFactoredMatrix` per task when multiplying
-concurrently.
+so they travel together through an API that takes a single matrix-like argument:
+products automatically use the bundled buffers as their `mul!` cache. The buffers serve
+only the products they fit, in shape (the `Workspace` carries a single outer size `p`)
+and element type; other products fall back to allocating. Use one `CachedFactoredMatrix`
+per task when multiplying concurrently.
 """
 struct CachedFactoredMatrix{T, F <: FactoredMatrix{T}, W <: Workspace} <: Factorization{T}
     M::F
@@ -260,14 +245,12 @@ end
 
 CachedFactoredMatrix(M::FactoredMatrix, p::Integer) = CachedFactoredMatrix(M, Workspace(M, p))
 
-# The adjoint/transpose share the buffers: the rank is unchanged, so products against
-# the adjointed matrix use the same intermediate sizes.
+# The adjoint/transpose share the buffers: the rank (hence intermediate sizes) is unchanged.
 Base.adjoint(C::CachedFactoredMatrix) = CachedFactoredMatrix(adjoint(C.M), C.ws)
 Base.transpose(C::CachedFactoredMatrix) = CachedFactoredMatrix(transpose(C.M), C.ws)
 
-# Scalar and UniformScaling products forward to the wrapped matrix, keeping the
-# bundled buffers (which are simply left unused whenever they cannot hold the
-# intermediates of a later product, e.g. after promotion by a complex scalar).
+# Scalar and UniformScaling products forward to the wrapped matrix, keeping the bundled
+# buffers (simply left unused if a later product's intermediates no longer fit them).
 Base.:(*)(a::Number, C::CachedFactoredMatrix) = CachedFactoredMatrix(a * C.M, C.ws)
 Base.:(*)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M * a, C.ws)
 Base.:(/)(C::CachedFactoredMatrix, a::Number) = CachedFactoredMatrix(C.M / a, C.ws)
@@ -277,18 +260,20 @@ Base.:(*)(J::UniformScaling, C::CachedFactoredMatrix) = CachedFactoredMatrix(J.�
 Base.:(+)(C::CachedFactoredMatrix) = C
 Base.:(-)(C::CachedFactoredMatrix) = CachedFactoredMatrix(-C.M, C.ws) # rank unchanged, buffers still fit
 
-# Lazy sums and differences forward to the wrapped matrices. The result is a plain
-# FactoredMatrix: its storage rank is the sum of the operand ranks, so the bundled
-# rank-sized buffers would not fit it anyway.
+# Lazy sums and differences forward to the wrapped matrices, returning a plain
+# FactoredMatrix: the result's rank is the sum of the ranks, so the buffers cannot fit it.
 Base.:(+)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M + B.M
 Base.:(+)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M + B
 Base.:(+)(A::FactoredMatrix, B::CachedFactoredMatrix) = A + B.M
+Base.:(+)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M + rewrap(B)
+Base.:(+)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) + B.M
 Base.:(-)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M - B.M
 Base.:(-)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M - B
 Base.:(-)(A::FactoredMatrix, B::CachedFactoredMatrix) = A - B.M
+Base.:(-)(A::CachedFactoredMatrix, B::AdjOrTransFM) = A.M - rewrap(B)
+Base.:(-)(A::AdjOrTransFM, B::CachedFactoredMatrix) = rewrap(A) - B.M
 
-# The copy gets duplicated factors and its own scratch buffers (their contents are
-# scratch, so fresh undef buffers suffice), making it safe for use in another task.
+# Duplicated factors and fresh scratch buffers: the copy is safe for another task.
 function Base.copy(C::CachedFactoredMatrix)
     ws = Workspace{eltype(C.ws.left)}(similar(C.ws.left), similar(C.ws.right))
     return CachedFactoredMatrix(copy(C.M), ws)
@@ -303,8 +288,8 @@ Base.Matrix(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.Array(C::CachedFactoredMatrix) = Matrix(C.M)
 Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.iszero(C::CachedFactoredMatrix) = iszero(C.M)
-# Comparisons ignore the bundled workspace: it is a scratch buffer, not content. The
-# mixed methods make a cached matrix compare equal to its uncached counterpart.
+# Comparisons ignore the bundled workspace (scratch, not content); the mixed methods
+# make a cached matrix compare equal to its uncached counterpart.
 Base.:(==)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M == B.M
 Base.:(==)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M == B
 Base.:(==)(A::FactoredMatrix, B::CachedFactoredMatrix) = A == B.M
@@ -327,17 +312,12 @@ Base.:(\)(C::CachedFactoredMatrix{T}, b::VecOrMat{Complex{T}}) where {T <: Union
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
-# The bundled buffers are used only when they fit the operation: the intermediate's
-# element type must be exactly the buffer's, and the buffer must have the shape the
-# operation needs (it carries a single outer size `p`). Otherwise the product falls back
-# to allocating its intermediates, preserving ordinary multiplication semantics.
+# The bundled buffers are handed to _lbuf/_rbuf only when their shape fits the
+# operation; the element-type match is decided inside _lbuf/_rbuf.
 _pdim(B::AbstractMatrix) = size(B, 2)
 _pdim(B::FactoredMatrix) = rank(B)
 _pdim(B::AdjOrTransFM) = rank(parent(B))
 
-# The bundled buffers are handed to _lbuf/_rbuf only when their shape fits the
-# operation (the Workspace carries a single outer size `p`); whether their element type
-# matches the intermediate is decided inside _lbuf/_rbuf, which fall back to allocating.
 function _left_cache(A::CachedFactoredMatrix, B::Union{AbstractMatrix, FactoredMatrix})
     return size(A.ws.left) == (rank(A.M), _pdim(B)) ? A.ws : nothing
 end
@@ -347,9 +327,8 @@ end
 function _right_cache(B::CachedFactoredMatrix, A::AbstractMatrix)
     return size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
 end
-# For factored × cached products the FactoredMatrix × FactoredMatrix path uses the left
-# buffer, with shape rank(A) × rank(B.M). When the ranks differ, the bundled right
-# buffer may have exactly that shape instead — hand it over as the left buffer then.
+# Factored × cached products use the left buffer (shape rank(A) × rank(B.M)); when the
+# ranks differ, the bundled right buffer may have exactly that shape instead.
 function _right_cache(B::CachedFactoredMatrix, A::Union{FactoredMatrix, AdjOrTransFM})
     shape = (rank(rewrap(A)), rank(B.M))
     ws = B.ws
@@ -379,8 +358,7 @@ Base.@inline function LinearAlgebra.mul!(C::AbstractMatrix, A::AbstractMatrix, B
     return _mul!(C, A, B.M, α, β, _right_cache(B, A))
 end
 
-# Factored operands (FactoredMatrix, its wrappers, or another CachedFactoredMatrix)
-# are supported like on a plain FactoredMatrix.
+# Factored operands are supported like on a plain FactoredMatrix.
 for BT in (:FactoredMatrix, :AdjOrTransFM)
     @eval begin
         LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::$BT) = _mul!(C, A.M, rewrap(B), true, false, _left_cache(A, B))
@@ -397,8 +375,7 @@ function LinearAlgebra.mul!(C::AbstractMatrix, A::CachedFactoredMatrix, B::Cache
     return _mul!(C, A.M, B.M, α, β, _left_cache(A, B.M))
 end
 
-# Products with factored operands stay factored (like FactoredMatrix products), so no
-# large intermediates arise and the buffers are not needed.
+# Products with factored operands stay factored; no large intermediates, no buffers needed.
 Base.:(*)(A::CachedFactoredMatrix, B::FactoredMatrix) = A.M * B
 Base.:(*)(A::FactoredMatrix, B::CachedFactoredMatrix) = A * B.M
 Base.:(*)(A::CachedFactoredMatrix, B::CachedFactoredMatrix) = A.M * B.M
@@ -421,7 +398,6 @@ function Base.:(*)(A::AbstractMatrix, B::CachedFactoredMatrix{T}) where {T}
 end
 
 # Row-vector left operands keep their row-vector result shape (the generic matrix
-# method above would return a 1 × n Matrix); the rank-sized intermediate makes the
-# buffers unnecessary.
+# method above would return a 1 × n Matrix); the intermediate is rank-sized anyway.
 Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M
 Base.:(*)(x::Transpose{<:Any, <:AbstractVector}, B::CachedFactoredMatrix) = x * B.M

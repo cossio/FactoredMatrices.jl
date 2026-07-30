@@ -347,6 +347,11 @@ cfmB = FactoredMatrices.CachedFactoredMatrix(copy(L), 3)
 @test Matrix(cfm - L) ≈ zeros(6, 5) atol = 1.0e-8
 @test Matrix(L - cfm) ≈ zeros(6, 5) atol = 1.0e-8
 @test Matrix(cfm - cfm) ≈ zeros(6, 5) atol = 1.0e-8
+Aw65 = FactoredMatrix(randn(5, 2), randn(6, 2)') # Adjoint(Aw65) is 6 × 5
+@test Matrix(cfm + Adjoint(Aw65)) ≈ M65 + Matrix(Aw65)'
+@test Matrix(Transpose(Aw65) + cfm) ≈ transpose(Matrix(Aw65)) + M65
+@test Matrix(cfm - Transpose(Aw65)) ≈ M65 - transpose(Matrix(Aw65))
+@test Matrix(Adjoint(Aw65) - cfm) ≈ Matrix(Aw65)' - M65
 @test +cfm === cfm
 @test -cfm isa FactoredMatrices.CachedFactoredMatrix
 @test Matrix(-cfm) ≈ -M65
