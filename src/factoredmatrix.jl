@@ -191,6 +191,9 @@ Base.:(*)(x::Adjoint{<:Any, <:AbstractVector}, L::FactoredMatrix) = (x * L.u) * 
 # FactoredMatrixes (adjoint/transpose of a FactoredMatrix is again a FactoredMatrix).
 const AdjOrTransFM = Union{Adjoint{<:Any, <:FactoredMatrix}, Transpose{<:Any, <:FactoredMatrix}}
 
+# NOTE: re-wrapping a Transpose of a complex FactoredMatrix copies the conjugated
+# factors (O((m + n) rank) allocation per call); in hot loops prefer calling
+# transpose(L) once outside the loop, which yields a reusable plain FactoredMatrix.
 rewrap(L::FactoredMatrix) = L
 rewrap(L::Adjoint{<:Any, <:FactoredMatrix}) = adjoint(parent(L))
 rewrap(L::Transpose{<:Any, <:FactoredMatrix}) = transpose(parent(L))
@@ -235,6 +238,9 @@ LinearAlgebra.dot(A::AbstractMatrix, B::FactoredMatrix) = conj(dot(B, A))
 # accumulation type and arithmetic of sum(abs2, Matrix(A)) — in particular it stays
 # exact for integer factors, unlike the floating-point QR route used by norm.
 Base.sum(::typeof(abs2), A::FactoredMatrix) = real(sum((A.u' * A.u) .* conj.(A.v' * A.v)))
+# For floating-point factors the Gram form can catastrophically cancel (even to a
+# negative value) when factor columns nearly cancel; the QR-based norm is stable.
+Base.sum(::typeof(abs2), A::FactoredMatrix{<:Union{AbstractFloat, Complex{<:AbstractFloat}}}) = norm(A)^2
 
 """
     norm(A::FactoredMatrix, p = 2)

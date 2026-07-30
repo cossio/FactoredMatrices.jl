@@ -240,6 +240,28 @@ C = zeros(6, 7)
 Cf = FactoredMatrix(zeros(6, 3), zeros(7, 3)')
 @test Matrix(mul!(Cf, cfmR, FactoredMatrices.CachedFactoredMatrix(R, 2))) ≈ Matrix(L) * Matrix(R)
 
+# an explicit Workspace whose element type cannot hold the intermediate falls back to
+# allocating instead of throwing InexactError
+wse = FactoredMatrices.Workspace(L, 4)
+Bc = randn(ComplexF64, 5, 4)
+xc = randn(ComplexF64, 5)
+Ac = randn(ComplexF64, 4, 6)
+@test mul!(zeros(ComplexF64, 6, 4), L, Bc; cache = wse) ≈ Matrix(L) * Bc
+@test mul!(zeros(ComplexF64, 6), L, xc; cache = wse) ≈ Matrix(L) * xc
+@test mul!(zeros(ComplexF64, 4, 5), Ac, L; cache = wse) ≈ Ac * Matrix(L)
+
+# factored × cached with equal ranks uses the left buffer directly
+cfmEq = FactoredMatrices.CachedFactoredMatrix(L, 2) # left buffer is 2 × 2 = rank(G) × rank(L)
+@test mul!(zeros(4, 5), G, cfmEq) ≈ Matrix(G) * Matrix(L)
+
+# factored × cached with unequal ranks reuses the (transposed-shape) right buffer
+A3 = FactoredMatrix(randn(4, 3), randn(6, 3)')
+cfm3 = FactoredMatrices.CachedFactoredMatrix(L, 3) # right buffer is 3 × 2 = rank(A3) × rank(L)
+C45 = zeros(4, 5)
+@test mul!(C45, A3, cfm3) ≈ Matrix(A3) * Matrix(L)
+Cf45 = FactoredMatrix(zeros(4, 3), zeros(5, 3)')
+@test Matrix(mul!(Cf45, A3, cfm3)) ≈ Matrix(A3) * Matrix(L)
+
 # Boolean products accumulate into Int, like ordinary matrix products
 Lb = FactoredMatrix(trues(1, 2), trues(1, 2)')
 cfb = FactoredMatrices.CachedFactoredMatrix(Lb, 1)

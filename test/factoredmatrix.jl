@@ -250,3 +250,10 @@ end
 Ai = FactoredMatrix([134217729;;], [1;;]')
 @test sum(abs2, Ai) === 134217729^2
 @test sum(abs2, Ai) == sum(abs2, Matrix(Ai))
+
+# floating-point factors use the stable QR route instead: the Gram closed form can
+# catastrophically cancel (even to a negative value) for nearly-cancelling columns
+Af = FactoredMatrix([1.0 1.0], [1.0e8 -nextfloat(1.0e8)]')
+@test sum(abs2, Af) ≥ 0
+@test sum(abs2, Af) ≈ sum(abs2, Matrix(Af))
+@test sum(abs2, FactoredMatrix(randn(ComplexF64, 5, 2), randn(ComplexF64, 4, 2)')) ≥ 0

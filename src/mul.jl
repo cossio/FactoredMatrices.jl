@@ -30,12 +30,40 @@ Workspace(L::FactoredMatrix{T}, p::Integer) where {T} = Workspace{T}(rank(L), p)
 
 const MaybeWorkspace = Union{Workspace, Nothing}
 
+# Element type of a matrix product with operand element types T and S. Products
+# accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
+_prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T) * zero(S))
+
+# Whether a buffer with element type T can hold intermediates of element type S.
+_fits(::Type{T}, ::Type{S}) where {T, S} = promote_type(T, S) === T
+
 # Small intermediates, written into the workspace buffers when a cache is provided.
+# A buffer that cannot hold the intermediate's element type (e.g. a real buffer with a
+# complex operand, which would throw InexactError) falls back to allocating, so that a
+# cache never changes results. The branches are resolved at compile time.
 _lbuf(::Nothing, L::FactoredMatrix, B) = L.v' * B
-_lbuf(ws::Workspace, L::FactoredMatrix, B::AbstractMatrix) = mul!(ws.left, L.v', B)
-_lbuf(ws::Workspace, L::FactoredMatrix, b::AbstractVector) = mul!(view(ws.left, :, 1), L.v', b)
+function _lbuf(ws::Workspace{T}, L::FactoredMatrix, B::AbstractMatrix) where {T}
+    if _fits(T, _prodtype(eltype(L), eltype(B)))
+        return mul!(ws.left, L.v', B)
+    else
+        return L.v' * B
+    end
+end
+function _lbuf(ws::Workspace{T}, L::FactoredMatrix, b::AbstractVector) where {T}
+    if _fits(T, _prodtype(eltype(L), eltype(b)))
+        return mul!(view(ws.left, :, 1), L.v', b)
+    else
+        return L.v' * b
+    end
+end
 _rbuf(::Nothing, A::AbstractMatrix, M::FactoredMatrix) = A * M.u
-_rbuf(ws::Workspace, A::AbstractMatrix, M::FactoredMatrix) = mul!(ws.right, A, M.u)
+function _rbuf(ws::Workspace{T}, A::AbstractMatrix, M::FactoredMatrix) where {T}
+    if _fits(T, _prodtype(eltype(A), eltype(M)))
+        return mul!(ws.right, A, M.u)
+    else
+        return A * M.u
+    end
+end
 
 #=== mul! into a dense output ===#
 
@@ -208,10 +236,6 @@ Base.sum(::typeof(abs2), C::CachedFactoredMatrix) = sum(abs2, C.M)
 Base.show(io::IO, C::CachedFactoredMatrix) = print(io, "Cached", C.M)
 Base.show(io::IO, ::MIME"text/plain", C::CachedFactoredMatrix) = show(io, C)
 
-# Element type of a matrix product with operand element types T and S. Products
-# accumulate, so this can grow beyond promote_type: e.g. Bool * Bool entries sum to Int.
-_prodtype(::Type{T}, ::Type{S}) where {T, S} = typeof(zero(T) * zero(S) + zero(T) * zero(S))
-
 # The bundled buffers are used only when they fit the operation: the intermediate's
 # element type must not grow beyond the buffer's, and the buffer must have the shape the
 # operation needs (it carries a single outer size `p`). Otherwise the product falls back
@@ -231,9 +255,18 @@ function _right_cache(B::CachedFactoredMatrix{T}, A::AbstractMatrix) where {T}
     return _prodtype(T, eltype(A)) === T && size(B.ws.right) == (size(A, 1), rank(B.M)) ? B.ws : nothing
 end
 # For factored × cached products the FactoredMatrix × FactoredMatrix path uses the left
-# buffer, with shape rank(A) × rank(B.M).
+# buffer, with shape rank(A) × rank(B.M). When the ranks differ, the bundled right
+# buffer may have exactly that shape instead — hand it over as the left buffer then.
 function _right_cache(B::CachedFactoredMatrix{T}, A::Union{FactoredMatrix, AdjOrTransFM}) where {T}
-    return _prodtype(T, eltype(A)) === T && size(B.ws.left) == (rank(rewrap(A)), rank(B.M)) ? B.ws : nothing
+    _prodtype(T, eltype(A)) === T || return nothing
+    shape = (rank(rewrap(A)), rank(B.M))
+    if size(B.ws.left) == shape
+        return B.ws
+    elseif size(B.ws.right) == shape
+        return Workspace{T}(B.ws.right, B.ws.left)
+    else
+        return nothing
+    end
 end
 
 # The forwarding methods call the positional internals directly: routing the bundled
