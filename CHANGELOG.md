@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ## Unreleased
 
+## 1.0.0
+
 ### Added
 
 - Three- and five-argument `mul!` methods for all combinations of `FactoredMatrix`, dense matrices and vectors — including `mul!` into a pre-allocated `FactoredMatrix` output. This makes `FactoredMatrix` usable with iterative solvers that require `mul!`.
@@ -20,7 +22,7 @@ All notable changes to this project will be documented in this file. The format 
 - `FactoredMatrix` is now a `Factorization` instead of an `AbstractMatrix`. It never supported `getindex`-based iteration anyway, so the `AbstractMatrix` generic fallbacks (printing, `==`, reductions, broadcasting) either errored or would have been silently `O(m * n * rank)`; subtyping `Factorization` makes the multiplication-oriented contract explicit. Like the standard-library `Factorization` types, entry indexing is not provided.
 - The constructor now requires the second factor to be passed adjointed (or transposed), so the call reads as the product it represents: `FactoredMatrix(u, v')` is the matrix `u * v'`. Passing two plain matrices throws an `ArgumentError` explaining this. (Suggested by Tim Holy.) Structured matrices whose adjoint is computed eagerly rather than as an `Adjoint` wrapper (`Diagonal`, `Hermitian`, triangular, ...) are accepted directly as the second argument and taken verbatim as the right multiplicand.
 - `FactoredMatrix` is now exported.
-- Minimum supported Julia version is now 1.11 (was 1.9), as required by the ExplicitImports publicness check added to the test suite (`public` markers exist only on Julia 1.11+).
+- Minimum supported Julia version is now 1.12 (was 1.9), required by the `[workspace]` setup for the test and docs projects (and by the ExplicitImports publicness check in the test suite, which needs the `public` markers introduced in Julia 1.11).
 
 ### Fixed
 
