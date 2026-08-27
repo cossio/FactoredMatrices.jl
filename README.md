@@ -13,12 +13,14 @@ that cost far less than forming the `m × n` matrix.
 
 ## Installation
 
-This package is not registered. Install it with:
+This package is not yet registered. Install it with:
 
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/cossio/FactoredMatrices.jl")
 ```
+
+(To be registered soon: https://github.com/JuliaRegistries/General/pull/166064)
 
 ## Usage
 
