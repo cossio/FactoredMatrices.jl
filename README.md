@@ -42,7 +42,7 @@ A' * randn(100, 3)          # adjoints/transposes are again FactoredMatrixes
 A * FactoredMatrix(randn(80, 2), randn(30, 2)')  # rank-2 FactoredMatrix
 ```
 
-`FactoredMatrix` is a `LinearAlgebra.Factorization`, *not* an `AbstractMatrix`: like the
+`FactoredMatrix` is a `LinearAlgebra.Factorization`, not an `AbstractMatrix`: like the
 standard-library `Factorization` types it supports neither indexing nor iteration, and
 instead implements `*`, `mul!`, `+`, `-`, scalar multiples, `dot`, `norm`, `tr`, `svd`,
 `\` (least squares / pseudoinverse solution) and conversion via `Matrix(A)`.
