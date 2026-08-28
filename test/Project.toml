@@ -6,8 +6,10 @@ KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestCompatHygiene = "b0582c03-59af-4651-a67d-b5bc031813b7"
 
 [compat]
 Aqua = "0.8.14"
 ExplicitImports = "1.15"
 KrylovKit = "0.9, 0.10"
+TestCompatHygiene = "1"
