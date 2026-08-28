@@ -4,6 +4,9 @@ end
 module explicit_imports_tests
     include("explicit_imports.jl")
 end
+module compat_hygiene_tests
+    include("compat_hygiene.jl")
+end
 module factoredmatrix_tests
     include("factoredmatrix.jl")
 end
