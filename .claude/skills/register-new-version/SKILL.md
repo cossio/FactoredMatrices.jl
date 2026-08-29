@@ -7,13 +7,13 @@ description: Release a new version of FactoredMatrices.jl and register it in the
 
 During development `version` in Project.toml stays at the last released number and changes accumulate under an `## Unreleased` section in CHANGELOG.md. The release commit is what bumps the version.
 
-This package's release history was reset: the old tags and GitHub releases were deleted, it is registered in no registry, and Project.toml is parked at `1.0.0` awaiting a first release under that number.
+This package's release history was reset before `v1.0.0`: the older tags and GitHub releases were deleted, and `v1.0.0` (registered in the Julia General registry) is the first release under the new history — no tags older than `v1.0.0` exist.
 
 ## Choosing the version number (ColPrac semver)
 
 Before anything else, analyze the changes and ask the user to choose the version. Never make the final version decision for the user.
 
-1. Review the actual changes since the last registered version — the `## Unreleased` CHANGELOG entries **and** the commit history/diff since the previous release tag (`git log vLAST..main`), since the CHANGELOG may be incomplete. Run `git fetch --tags` first, since a shallow clone may have no tag refs. **This package has no tags yet:** its release history was reset and the first release will be `v1.0.0`, so until then review the full history (`git log main`) rather than a tag range.
+1. Review the actual changes since the last registered version — the `## Unreleased` CHANGELOG entries **and** the commit history/diff since the previous release tag (`git log vLAST..main`), since the CHANGELOG may be incomplete. Run `git fetch --tags` first, since a shallow clone may have no tag refs.
 2. Classify every change using [ColPrac's extension of SemVer for Julia packages](https://docs.sciml.ai/ColPrac/stable/#Guidance-on-Package-Releases):
    - **Post-1.0:** bump major for breaking changes, minor for non-breaking features, and patch for bug fixes.
    - **Pre-1.0:** bump minor for breaking changes and patch for every non-breaking feature or bug fix.

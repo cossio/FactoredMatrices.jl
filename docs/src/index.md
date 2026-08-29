@@ -10,11 +10,11 @@ A Julia package implementing a [`FactoredMatrix`](@ref) type: a lazy matrix stor
 
 ## Installation
 
-This package is not registered. Install with:
+This package is registered in the Julia General registry. Install it with:
 
 ```julia
 import Pkg
-Pkg.add(url = "https://github.com/cossio/FactoredMatrices.jl")
+Pkg.add("FactoredMatrices")
 ```
 
 ## Quick start
